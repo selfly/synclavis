@@ -5,7 +5,7 @@ import { useMessage } from 'naive-ui';
 import { Minus, Plus } from 'lucide-vue-next';
 import { useReposStore } from '@/stores/repos';
 
-const props = defineProps<{ repoId: string }>();
+const props = defineProps<{ repoId: string; height: number }>();
 
 const repos = useReposStore();
 const message = useMessage();
@@ -49,7 +49,11 @@ async function submit(amend: boolean): Promise<void> {
 </script>
 
 <template>
-  <section class="flex h-[190px] shrink-0 flex-col border-t border-border bg-bg-elev">
+  <section
+    class="flex shrink-0 flex-col border-t border-border bg-bg-elev"
+    data-testid="commit-panel"
+    :style="{ height: `${height}px` }"
+  >
     <div class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1 text-xxs text-text-dim">
       <span>已暂存 {{ staged.length }}</span>
       <span>· 未暂存 {{ unstaged.length + untracked.length }}</span>
@@ -59,7 +63,8 @@ async function submit(amend: boolean): Promise<void> {
     </div>
 
     <div class="flex min-h-0 flex-1">
-      <ul class="w-[260px] shrink-0 overflow-y-auto border-r border-border">
+      <!-- 宽度随右列自适应：左栏可拖宽后，固定 260px 会把提交信息框挤没 -->
+      <ul class="w-[45%] min-w-[140px] max-w-[260px] shrink-0 overflow-y-auto border-r border-border">
         <li
           v-for="file in staged"
           :key="`s-${file.path}`"

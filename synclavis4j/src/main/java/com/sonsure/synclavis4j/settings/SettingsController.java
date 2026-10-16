@@ -33,6 +33,6 @@ public class SettingsController {
             return ApiResponse.ok(settingsService.get());
         }
         return ApiResponse.ok(settingsService.update(
-                request.getTheme(), request.getShortcuts(), request.getRecentRepos()));
+                request.getTheme(), request.getShortcuts(), request.getRecentRepos(), request.getLayout()));
     }
 }

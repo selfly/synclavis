@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 全局设置：主题、快捷键、最近仓库。后端持久化（前端 localStorage 仅作瞬时缓存）。
+ * 全局设置：主题、快捷键、最近仓库、布局尺寸。后端持久化（前端 localStorage 仅作瞬时缓存）。
  */
 public class GlobalSettings {
 
@@ -15,6 +15,7 @@ public class GlobalSettings {
     private String theme = DEFAULT_THEME;
     private Map<String, String> shortcuts = defaultShortcuts();
     private List<RecentRepo> recentRepos = new ArrayList<RecentRepo>();
+    private LayoutSettings layout = new LayoutSettings();
 
     public static Map<String, String> defaultShortcuts() {
         Map<String, String> map = new LinkedHashMap<String, String>();
@@ -46,5 +47,13 @@ public class GlobalSettings {
 
     public void setRecentRepos(List<RecentRepo> recentRepos) {
         this.recentRepos = recentRepos == null ? new ArrayList<RecentRepo>() : recentRepos;
+    }
+
+    public LayoutSettings getLayout() {
+        return layout;
+    }
+
+    public void setLayout(LayoutSettings layout) {
+        this.layout = layout == null ? new LayoutSettings() : layout;
     }
 }

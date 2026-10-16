@@ -12,6 +12,7 @@ public class UpdateGlobalSettingsRequest {
     private String theme;
     private Map<String, String> shortcuts;
     private List<RecentRepo> recentRepos;
+    private LayoutSettingsPatch layout;
 
     public String getTheme() {
         return theme;
@@ -35,5 +36,13 @@ public class UpdateGlobalSettingsRequest {
 
     public void setRecentRepos(List<RecentRepo> recentRepos) {
         this.recentRepos = recentRepos;
+    }
+
+    public LayoutSettingsPatch getLayout() {
+        return layout;
+    }
+
+    public void setLayout(LayoutSettingsPatch layout) {
+        this.layout = layout;
     }
 }

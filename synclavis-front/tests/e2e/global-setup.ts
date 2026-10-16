@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,19 +7,29 @@ import { fileURLToPath } from 'node:url';
 // 项目是 ESM（"type": "module"），不能使用 __dirname
 const here = dirname(fileURLToPath(import.meta.url));
 
+/** 额外制造的提交数：必须让提交列表高度明显超过视口，才能暴露「整页被撑高」类缺陷 */
+export const HISTORY_COMMITS = 60;
+
 /**
  * 创建 E2E 用的临时仓库，并把路径写入 .repo-path。
  *
  * 仓库带一个 bare 远程并已 push -u，这样 Fetch / Pull / Push 按钮才是可用状态
  * （无远程时按需求约定会被禁用）。
+ *
+ * 另外制造 {@link HISTORY_COMMITS} 条提交（共 HISTORY_COMMITS + 1 条）：
+ * 长提交历史是布局缺陷（提交流被推出视口）与虚拟滚动的必要前置条件。
  */
-export default function globalSetup(): void {
+export default async function globalSetup(): Promise<void> {
   const base = mkdtempSync(join(tmpdir(), 'synclavis-e2e-'));
   const repo = join(base, 'e2e-repo');
   const origin = join(base, 'origin.git');
 
   const git = (args: string[], cwd?: string): void => {
-    execFileSync('git', args, cwd ? { cwd } : undefined);
+    if (cwd) {
+      execFileSync('git', args, { cwd });
+    } else {
+      execFileSync('git', args);
+    }
   };
 
   git(['-c', 'init.defaultBranch=main', 'init', '-q', repo]);
@@ -29,10 +39,29 @@ export default function globalSetup(): void {
   git(['add', '.'], repo);
   git(['commit', '-qm', 'init'], repo);
 
+  // 长历史：每条提交都真实改 README.md（避免 --allow-empty 掩盖 diff 相关问题）
+  for (let i = 1; i <= HISTORY_COMMITS; i += 1) {
+    const seq = String(i).padStart(3, '0');
+    appendFileSync(join(repo, 'README.md'), `history line ${seq}\n`);
+    git(['add', '.'], repo);
+    git(['commit', '-qm', `history-${seq}`], repo);
+  }
+
   // bare 远程 + 上游跟踪
   git(['-c', 'init.defaultBranch=main', 'clone', '-q', '--bare', repo, origin]);
   git(['remote', 'add', 'origin', origin], repo);
   git(['push', '-q', '-u', 'origin', 'main'], repo);
 
   writeFileSync(join(here, '.repo-path'), repo, 'utf8');
+
+  // 记录运行前的主题，交给 global-teardown 还原：
+  // E-03 会切换主题并持久化到后端，不还原的话每跑一次 E2E 都会翻转用户的主题偏好。
+  try {
+    const response = await fetch(`${process.env.SYNCLAVIS_BASE_URL ?? 'http://127.0.0.1:18080'}/api/settings`);
+    const payload = (await response.json()) as { data: { theme: string } };
+    writeFileSync(join(here, '.repo-theme'), payload.data.theme, 'utf8');
+  } catch {
+    writeFileSync(join(here, '.repo-theme'), '', 'utf8');
+  }
 }
+

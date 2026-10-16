@@ -4,7 +4,7 @@ import { Archive, FolderGit2, GitBranch, Tag } from 'lucide-vue-next';
 import { useReposStore } from '@/stores/repos';
 import { useTabsStore } from '@/stores/tabs';
 
-const props = defineProps<{ repoId: string }>();
+const props = defineProps<{ repoId: string; width: number }>();
 
 const repos = useReposStore();
 const tabs = useTabsStore();
@@ -17,7 +17,10 @@ const remoteBranches = computed(() => detail.value.branches.filter((b) => !b.loc
 </script>
 
 <template>
-  <aside class="flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-border bg-bg-elev">
+  <aside
+    class="flex shrink-0 flex-col overflow-y-auto border-r border-border bg-bg-elev"
+    :style="{ width: `${width}px` }"
+  >
     <section class="border-b border-border px-2 py-2">
       <div class="flex items-center gap-1.5 text-xs font-medium text-text">
         <FolderGit2 :size="12" />

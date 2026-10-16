@@ -12,3 +12,5 @@ test-results/
 playwright-report/
 .idea/
 *.iml
+synclavis-front/tests/e2e/.repo-path
+synclavis-front/tests/e2e/.repo-theme

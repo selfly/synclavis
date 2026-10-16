@@ -12,10 +12,12 @@ import RepoTabBar from '@/components/tabs/RepoTabBar.vue';
 import RepoWorkspace from '@/components/workspace/RepoWorkspace.vue';
 import { useRepoEvents } from '@/composables/useRepoEvents';
 import { useShortcuts } from '@/composables/useShortcuts';
+import { useViewportHeight } from '@/composables/useElementHeight';
 import { useOperationsStore } from '@/stores/operations';
 import { useReposStore } from '@/stores/repos';
 import { useSettingsStore } from '@/stores/settings';
 import { useTabsStore } from '@/stores/tabs';
+import { LAYOUT_BOUNDS } from '@/utils/layout';
 
 const tabs = useTabsStore();
 const repos = useReposStore();
@@ -30,6 +32,26 @@ const bootError = ref<string | null>(null);
 const booting = ref(true);
 
 const activeRepoId = computed(() => tabs.activeId);
+
+/** 日志面板：拖拽中走本地 preview，落盘走全局设置（后端持久化） */
+const logPanelPreview = ref<number | null>(null);
+const logPanelHeight = computed(() => logPanelPreview.value ?? settings.layout.logPanelHeight);
+const viewportHeight = useViewportHeight();
+const logPanelMax = computed(() =>
+  Math.min(
+    LAYOUT_BOUNDS.logPanelHeight.max,
+    Math.max(LAYOUT_BOUNDS.logPanelHeight.min, Math.round(viewportHeight.value * 0.5)),
+  ),
+);
+
+function onLogPanelInput(size: number): void {
+  logPanelPreview.value = size;
+}
+
+function onLogPanelCommit(size: number): void {
+  logPanelPreview.value = null;
+  void settings.setLayout({ logPanelHeight: size });
+}
 
 // 仅订阅当前激活仓库的事件流（见设计文档 §8.3）
 useRepoEvents(activeRepoId);
@@ -94,7 +116,15 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex h-full flex-col bg-bg text-text">
+  <!--
+    高度必须锚定视口（h-screen），不能用 h-full：
+    Naive UI 的 NConfigProvider 会在 #app 与这里之间插入一层没有高度的
+    .n-config-provider 容器，使 #app 的 height:100% 无法穿透，h-full 会退化为
+    auto，整条 min-h-0 / flex-1 / overflow-y-auto 高度链随之失效 ——
+    表现为提交历史把整页撑高，暂存文件与 Commit 按钮被推出视口（见《详细设计文档》§9.5）。
+    overflow-hidden 作为兜底：今后任何内容超高都只在内部滚动，绝不产生整页滚动。
+  -->
+  <div class="flex h-screen flex-col overflow-hidden bg-bg text-text">
     <RepoTabBar @open="showOpenDialog = true" />
 
     <QuickActionBar
@@ -126,7 +156,14 @@ onMounted(async () => {
       <RepoWorkspace v-else :key="tabs.activeId" :repo-id="tabs.activeId" />
     </main>
 
-    <OperationLogPanel v-if="tabs.activeId" :repo-id="tabs.activeId" />
+    <OperationLogPanel
+      v-if="tabs.activeId"
+      :repo-id="tabs.activeId"
+      :height="logPanelHeight"
+      :max-height="logPanelMax"
+      @update:height="onLogPanelInput"
+      @commit-height="onLogPanelCommit"
+    />
 
     <OpenRepoDialog
       v-model:show="showOpenDialog"
