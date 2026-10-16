@@ -1,0 +1,41 @@
+:root {
+  /* 尺寸 */
+  --sl-row-h: 26px;
+  --sl-font-xs: 11px;
+  --sl-font-sm: 12px;
+  --sl-font-md: 13px;
+  --sl-font-lg: 15px;
+  --sl-radius: 4px;
+
+  /* 语义状态色（跨主题一致） */
+  --sl-accent: #3b82f6;
+  --sl-success: #22c55e;
+  --sl-warn: #f59e0b;
+  --sl-danger: #ef4444;
+  --sl-diff-add: #22c55e1a;
+  --sl-diff-del: #ef44441a;
+}
+
+html[data-theme='dark'] {
+  --sl-bg: #1e1e1e;
+  --sl-bg-elev: #252526;
+  --sl-bg-hover: #2a2d2e;
+  --sl-border: #3c3c3c;
+  --sl-text: #d4d4d4;
+  --sl-text-dim: #8a8a8a;
+  --sl-graph-1: #4ec9b0;
+  --sl-graph-2: #dcdcaa;
+  --sl-graph-3: #c586c0;
+}
+
+html[data-theme='light'] {
+  --sl-bg: #ffffff;
+  --sl-bg-elev: #f3f3f3;
+  --sl-bg-hover: #e8e8e8;
+  --sl-border: #d4d4d4;
+  --sl-text: #1f1f1f;
+  --sl-text-dim: #6b6b6b;
+  --sl-graph-1: #0f766e;
+  --sl-graph-2: #a16207;
+  --sl-graph-3: #a21caf;
+}

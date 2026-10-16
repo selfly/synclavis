@@ -1,0 +1,14 @@
+.DS_Store
+*.log
+logs/
+target/
+node_modules/
+dist/
+.vite/
+.pnpm-store/
+.m2repo/
+.pw-browsers/
+test-results/
+playwright-report/
+.idea/
+*.iml

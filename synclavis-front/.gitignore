@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.vite/
+*.local
+test-results/
+playwright-report/
+tests/e2e/.repo-path

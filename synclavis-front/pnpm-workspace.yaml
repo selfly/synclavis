@@ -1,0 +1,5 @@
+# pnpm 11 起，构建设置从 package.json 的 "pnpm" 字段迁移到本文件。
+# esbuild / vue-demi 需要执行安装脚本（下载平台二进制、生成 shim），否则 Vite 无法运行。
+allowBuilds:
+  esbuild: true
+  vue-demi: true

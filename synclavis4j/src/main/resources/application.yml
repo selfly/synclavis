@@ -1,0 +1,24 @@
+server:
+  # 默认只监听本机；需求约定见《详细设计文档》附录 D（J4）
+  address: 127.0.0.1
+  port: 18080
+
+spring:
+  application:
+    name: synclavis4j
+  jackson:
+    default-property-inclusion: always
+    date-format: "yyyy-MM-dd'T'HH:mm:ssXXX"
+    time-zone: Asia/Shanghai
+
+synclavis:
+  state:
+    # 可用环境变量 SYNCLAVIS_HOME 覆盖（附录 D / J8）
+    dir: "${SYNCLAVIS_HOME:${user.home}/.synclavis}"
+
+logging:
+  level:
+    root: INFO
+    com.sonsure.synclavis4j: DEBUG
+  file:
+    name: logs/synclavis4j.log
