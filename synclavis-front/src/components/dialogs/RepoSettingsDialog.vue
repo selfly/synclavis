@@ -6,6 +6,7 @@ import { KeyRound, ShieldCheck, Trash2 } from 'lucide-vue-next';
 import { reposApi, type UpdateRepoSettingsBody } from '@/api/repos';
 import { useTabsStore } from '@/stores/tabs';
 import type { PullStrategy } from '@/types/repo';
+import PathPickerDialog from '@/components/dialogs/PathPickerDialog.vue';
 
 const props = defineProps<{ show: boolean; repoId: string }>();
 const emit = defineEmits<{ (e: 'update:show', value: boolean): void }>();
@@ -21,6 +22,7 @@ const hasPassword = ref(false);
 const saving = ref(false);
 const loading = ref(false);
 const errorText = ref<string | null>(null);
+const showKeyPicker = ref(false);
 
 const strategyOptions = [
   { label: 'Pull (Merge)', value: 'merge' },
@@ -108,11 +110,22 @@ async function clearPassword(): Promise<void> {
         <label class="mb-1 flex items-center gap-1 text-xs text-text-dim">
           <KeyRound :size="12" /> SSH 私钥路径
         </label>
-        <n-input
-          v-model:value="sshKeyPath"
-          placeholder="留空使用默认 ~/.ssh/id_rsa"
-          :disabled="loading || saving"
-        />
+        <div class="flex items-center gap-2">
+          <n-input
+            v-model:value="sshKeyPath"
+            class="min-w-0 flex-1"
+            placeholder="留空使用默认 ~/.ssh/id_rsa"
+            :disabled="loading || saving"
+          />
+          <n-button
+            size="small"
+            data-testid="settings-key-browse"
+            :disabled="loading || saving"
+            @click="showKeyPicker = true"
+          >
+            浏览…
+          </n-button>
+        </div>
         <p class="mt-1 text-xxs text-text-dim">每个仓库可单独指定私钥；不支持带口令的私钥</p>
       </div>
 
@@ -171,4 +184,11 @@ async function clearPassword(): Promise<void> {
       </div>
     </div>
   </n-modal>
+
+  <PathPickerDialog
+    v-model:show="showKeyPicker"
+    kind="file"
+    :initial-path="sshKeyPath"
+    @select="sshKeyPath = $event"
+  />
 </template>

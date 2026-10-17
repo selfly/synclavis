@@ -5,6 +5,7 @@ import { useMessage } from 'naive-ui';
 import { Download, FolderOpen, History, KeyRound } from 'lucide-vue-next';
 import { reposApi, type RecentRepoDto } from '@/api/repos';
 import { useTabsStore } from '@/stores/tabs';
+import PathPickerDialog from '@/components/dialogs/PathPickerDialog.vue';
 
 const props = defineProps<{ show: boolean }>();
 const emit = defineEmits<{
@@ -21,6 +22,8 @@ const recents = ref<RecentRepoDto[]>([]);
 const loadingRecents = ref(false);
 const submitting = ref(false);
 const errorText = ref<string | null>(null);
+const showPicker = ref(false);
+const showKeyPicker = ref(false);
 
 watch(
   () => props.show,
@@ -42,6 +45,10 @@ watch(
 
 function pickRecent(repo: RecentRepoDto): void {
   path.value = repo.path;
+}
+
+function pickPath(value: string): void {
+  path.value = value;
 }
 
 async function submit(): Promise<void> {
@@ -78,12 +85,23 @@ async function submit(): Promise<void> {
     <div class="flex flex-col gap-3">
       <div>
         <label class="mb-1 block text-xs text-text-dim">本地路径</label>
-        <n-input
-          v-model:value="path"
-          placeholder="/Users/me/projects/my-repo"
-          :disabled="submitting"
-          @keyup.enter="submit"
-        />
+        <div class="flex items-center gap-2">
+          <n-input
+            v-model:value="path"
+            class="min-w-0 flex-1"
+            placeholder="/Users/me/projects/my-repo"
+            :disabled="submitting"
+            @keyup.enter="submit"
+          />
+          <n-button
+            size="small"
+            data-testid="open-repo-browse"
+            :disabled="submitting"
+            @click="showPicker = true"
+          >
+            浏览…
+          </n-button>
+        </div>
       </div>
 
       <div>
@@ -91,12 +109,23 @@ async function submit(): Promise<void> {
           <KeyRound :size="12" />
           SSH 私钥路径（可选，留空使用默认 ~/.ssh/id_rsa）
         </label>
-        <n-input
-          v-model:value="sshKeyPath"
-          placeholder="/Users/me/.ssh/id_ed25519_work"
-          :disabled="submitting"
-          @keyup.enter="submit"
-        />
+        <div class="flex items-center gap-2">
+          <n-input
+            v-model:value="sshKeyPath"
+            class="min-w-0 flex-1"
+            placeholder="/Users/me/.ssh/id_ed25519_work"
+            :disabled="submitting"
+            @keyup.enter="submit"
+          />
+          <n-button
+            size="small"
+            data-testid="open-repo-key-browse"
+            :disabled="submitting"
+            @click="showKeyPicker = true"
+          >
+            浏览…
+          </n-button>
+        </div>
       </div>
 
       <div v-if="errorText" class="rounded bg-danger/10 px-2 py-1.5 text-xs text-danger">
@@ -141,4 +170,17 @@ async function submit(): Promise<void> {
       </div>
     </div>
   </n-modal>
+
+  <PathPickerDialog
+    v-model:show="showPicker"
+    kind="dir"
+    :initial-path="path"
+    @select="pickPath"
+  />
+  <PathPickerDialog
+    v-model:show="showKeyPicker"
+    kind="file"
+    :initial-path="sshKeyPath"
+    @select="sshKeyPath = $event"
+  />
 </template>

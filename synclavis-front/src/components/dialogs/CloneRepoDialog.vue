@@ -6,6 +6,7 @@ import { Download, KeyRound, Link } from 'lucide-vue-next';
 import { connectGlobalEvents, type WsConnection } from '@/api/ws';
 import { reposApi } from '@/api/repos';
 import { useTabsStore } from '@/stores/tabs';
+import PathPickerDialog from '@/components/dialogs/PathPickerDialog.vue';
 
 const props = defineProps<{ show: boolean }>();
 const emit = defineEmits<{ (e: 'update:show', value: boolean): void }>();
@@ -24,6 +25,8 @@ const progressText = ref('');
 const percent = ref(0);
 const logLines = ref<string[]>([]);
 const errorText = ref<string | null>(null);
+const showPathPicker = ref(false);
+const showKeyPicker = ref(false);
 
 let connection: WsConnection | null = null;
 let activeOperationId: string | null = null;
@@ -129,7 +132,22 @@ async function submit(): Promise<void> {
 
       <div>
         <label class="mb-1 block text-xs text-text-dim">目标路径</label>
-        <n-input v-model:value="path" placeholder="/Users/me/projects/repo" :disabled="submitting" />
+        <div class="flex items-center gap-2">
+          <n-input
+            v-model:value="path"
+            class="min-w-0 flex-1"
+            placeholder="/Users/me/projects/repo"
+            :disabled="submitting"
+          />
+          <n-button
+            size="small"
+            data-testid="clone-path-browse"
+            :disabled="submitting"
+            @click="showPathPicker = true"
+          >
+            浏览…
+          </n-button>
+        </div>
       </div>
 
       <div class="rounded border border-border p-2">
@@ -139,11 +157,22 @@ async function submit(): Promise<void> {
             <label class="mb-1 flex items-center gap-1 text-xs text-text-dim">
               <KeyRound :size="12" /> SSH 私钥路径（留空用默认 ~/.ssh/id_rsa）
             </label>
-            <n-input
-              v-model:value="sshKeyPath"
-              placeholder="/Users/me/.ssh/id_ed25519_work"
-              :disabled="submitting"
-            />
+            <div class="flex items-center gap-2">
+              <n-input
+                v-model:value="sshKeyPath"
+                class="min-w-0 flex-1"
+                placeholder="/Users/me/.ssh/id_ed25519_work"
+                :disabled="submitting"
+              />
+              <n-button
+                size="small"
+                data-testid="clone-key-browse"
+                :disabled="submitting"
+                @click="showKeyPicker = true"
+              >
+                浏览…
+              </n-button>
+            </div>
           </div>
           <div class="flex gap-2">
             <n-input
@@ -191,4 +220,17 @@ async function submit(): Promise<void> {
       </div>
     </div>
   </n-modal>
+
+  <PathPickerDialog
+    v-model:show="showPathPicker"
+    kind="dir"
+    :initial-path="path"
+    @select="path = $event"
+  />
+  <PathPickerDialog
+    v-model:show="showKeyPicker"
+    kind="file"
+    :initial-path="sshKeyPath"
+    @select="sshKeyPath = $event"
+  />
 </template>

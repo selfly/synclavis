@@ -1,5 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readFileSync, realpathSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { COMMIT_MESSAGE_MIN_WIDTH, DEFAULT_LAYOUT, DIFF_MIN_HEIGHT } from '../../src/utils/layout';
@@ -17,6 +17,8 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoPath = readFileSync(join(here, '.repo-path'), 'utf8').trim();
+/** 后端会把路径 canonicalize（macOS 上 /var → /private/var），比较时用真实路径 */
+const repoRealPath = realpathSync(repoPath);
 
 /** 仓库总提交数：init + HISTORY_COMMITS */
 const TOTAL_COMMITS = HISTORY_COMMITS + 1;
@@ -234,6 +236,7 @@ test('E-06 仓库设置对话框可打开并回显 SSH 私钥路径', async ({ p
   await page.locator('button[title*="仓库设置"]').first().click();
   await expect(page.locator('text=SSH 私钥路径')).toBeVisible();
   await expect(page.getByPlaceholder('留空使用默认 ~/.ssh/id_rsa')).toBeVisible();
+  await expect(page.getByTestId('settings-key-browse')).toBeVisible();
   await page.locator('.n-modal').getByRole('button', { name: '取消', exact: true }).click();
 });
 
@@ -662,4 +665,61 @@ test('E-13 超长路径不撑破布局，行内与提交按钮仍可见可点', 
     data: { layout: { commitPanelHeight: DEFAULT_LAYOUT.commitPanelHeight } },
   });
   await page.reload();
+});
+
+test('E-14 打开仓库可浏览选择目录，隐藏项默认隐藏', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开仓库' }).first().click();
+
+  const openDialog = page.locator('.n-modal').filter({ hasText: '打开仓库' });
+  await expect(openDialog).toBeVisible();
+  await expect(openDialog.getByTestId('open-repo-key-browse')).toBeVisible();
+  await openDialog.getByTestId('open-repo-browse').click();
+
+  const picker = page.locator('.n-modal').filter({ hasText: '选择目录' });
+  await expect(picker).toBeVisible();
+
+  const pathInput = picker.getByPlaceholder('输入绝对路径后回车');
+  await pathInput.fill(dirname(repoRealPath));
+  await pathInput.press('Enter');
+
+  const repoEntry = picker
+    .locator('[data-testid="path-picker-entry"]')
+    .filter({ hasText: basename(repoRealPath) });
+  await expect(repoEntry).toBeVisible();
+  await expect(repoEntry.getByText('仓库', { exact: true })).toBeVisible();
+
+  // 单击目录即进入
+  await repoEntry.click();
+  await expect(pathInput).toHaveValue(repoRealPath);
+
+  // 隐藏项默认不显示，开关后出现 .git
+  const hiddenEntry = picker
+    .locator('[data-testid="path-picker-entry"]')
+    .filter({ hasText: '.git' });
+  await expect(hiddenEntry).toHaveCount(0);
+  await picker.getByTestId('path-picker-show-hidden').click();
+  await expect(hiddenEntry).toBeVisible();
+
+  // 选择当前目录 → 回填打开仓库的路径输入框
+  await picker.getByTestId('path-picker-choose').click();
+  await expect(picker).toBeHidden();
+  await expect(openDialog.getByPlaceholder('/Users/me/projects/my-repo')).toHaveValue(repoRealPath);
+  await openDialog.getByRole('button', { name: '取消', exact: true }).click();
+
+  // 克隆目标路径与 SSH 私钥也提供浏览入口
+  await page.getByRole('button', { name: '打开仓库' }).first().click();
+  await openDialog.getByRole('button', { name: '克隆远程仓库' }).click();
+  await expect(openDialog).toBeHidden();
+  const cloneDialog = page.locator('.n-modal').filter({ hasText: '远程地址' });
+  await expect(cloneDialog).toBeVisible();
+  await expect(cloneDialog.getByTestId('clone-path-browse')).toBeVisible();
+  await expect(cloneDialog.getByTestId('clone-key-browse')).toBeVisible();
+
+  await cloneDialog.getByTestId('clone-key-browse').click();
+  const filePicker = page.locator('.n-modal').filter({ hasText: '选择文件' });
+  await expect(filePicker).toBeVisible();
+  await filePicker.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(filePicker).toBeHidden();
+  await cloneDialog.getByRole('button', { name: '取消', exact: true }).click();
 });
