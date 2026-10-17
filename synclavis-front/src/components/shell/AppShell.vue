@@ -161,7 +161,12 @@ onMounted(async () => {
         <n-button size="small" @click="showOpenDialog = true">打开仓库</n-button>
       </div>
 
-      <RepoWorkspace v-else :key="tabs.activeId" :repo-id="tabs.activeId" />
+      <RepoWorkspace
+        v-else
+        :key="tabs.activeId"
+        :repo-id="tabs.activeId"
+        @settings="showSettingsDialog = true"
+      />
     </main>
 
     <OperationLogPanel

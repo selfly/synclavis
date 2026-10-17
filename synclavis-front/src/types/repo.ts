@@ -55,6 +55,14 @@ export interface RepoSummary {
   pullStrategy: PullStrategy;
 }
 
+/** 远程仓库配置（见《详细设计文档》§6.2「远程仓库」） */
+export interface RemoteInfo {
+  name: string;
+  url: string;
+  /** 只读：remote.<name>.pushurl 有配置时非空 */
+  pushUrl: string | null;
+}
+
 export interface BranchInfo {
   name: string;
   fullName: string;

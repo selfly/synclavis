@@ -25,6 +25,11 @@ export const LONG_PATH_FILE = `${LONG_PATH_DIR}/${'a'.repeat(80)}.txt`;
 /** 超长 diff 行：验证宽内容只能横向滚动，不能把右列/提交按钮撑出视口 */
 export const LONG_LINE_FILE = `${LONG_PATH_DIR}/long-line.txt`;
 
+/** E-15：本地 init 且无 remote 的仓库路径点文件 */
+export const LOCAL_REPO_POINT = '.repo-path-local';
+/** E-15：留给该仓库添加的 bare 远程路径点文件 */
+export const LOCAL_BARE_POINT = '.repo-bare-local';
+
 /**
  * 创建 E2E 用的临时仓库，并把路径写入 .repo-path。
  *
@@ -87,6 +92,22 @@ export default async function globalSetup(): Promise<void> {
   writeFileSync(join(repo, LONG_LINE_FILE), `${'x'.repeat(320)}\n`);
 
   writeFileSync(join(here, '.repo-path'), repo, 'utf8');
+
+  // E-15 前置：本地 `git init` 且**没有任何 remote** 的仓库，外加一个空的 bare 远程。
+  // 无 remote 时 Push 应可点击并引导打开「仓库设置 → 远程仓库」；
+  // 添加 origin 后自动 Fetch 一次，Push 才真正可用（首次 push 需 setUpstream）。
+  const localRepo = join(base, 'local-repo');
+  const localBare = join(base, 'local-bare.git');
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', localRepo]);
+  git(['config', 'user.email', 'e2e@synclavis.local'], localRepo);
+  git(['config', 'user.name', 'e2e'], localRepo);
+  writeFileSync(join(localRepo, 'README.md'), '# local only repo\n');
+  git(['add', '.'], localRepo);
+  git(['commit', '-qm', 'init'], localRepo);
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', '--bare', localBare]);
+
+  writeFileSync(join(here, LOCAL_REPO_POINT), localRepo, 'utf8');
+  writeFileSync(join(here, LOCAL_BARE_POINT), localBare, 'utf8');
 
   // 记录运行前的主题，交给 global-teardown 还原：
   // E-03 会切换主题并持久化到后端，不还原的话每跑一次 E2E 都会翻转用户的主题偏好。

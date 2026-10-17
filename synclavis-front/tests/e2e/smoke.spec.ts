@@ -5,6 +5,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { COMMIT_MESSAGE_MIN_WIDTH, DEFAULT_LAYOUT, DIFF_MIN_HEIGHT } from '../../src/utils/layout';
 import {
   HISTORY_COMMITS,
+  LOCAL_BARE_POINT,
+  LOCAL_REPO_POINT,
   LONG_LINE_FILE,
   LONG_PATH_FILE,
   STAGED_PATCH_LINE,
@@ -722,4 +724,78 @@ test('E-14 打开仓库可浏览选择目录，隐藏项默认隐藏', async ({ 
   await filePicker.getByRole('button', { name: '取消', exact: true }).click();
   await expect(filePicker).toBeHidden();
   await cloneDialog.getByRole('button', { name: '取消', exact: true }).click();
+});
+
+/**
+ * E-15：本地 `git init` 的仓库没有 remote，必须能就地添加后再推送。
+ *
+ * 回归覆盖四件事：①无 remote 时 Push 不置灰而是引导到设置；②添加远程后自动 Fetch 一次；
+ * ③首次推送走「设置上游并推送」且文案用实际 remote 名；④侧栏远程分支按 remote 分组。
+ */
+test('E-15 本地 init 仓库添加远程后自动 Fetch，首次推送成功且侧栏按 remote 分组', async ({
+  page,
+}) => {
+  const localRepoPath = realpathSync(readFileSync(join(here, LOCAL_REPO_POINT), 'utf8').trim());
+  const localBarePath = realpathSync(readFileSync(join(here, LOCAL_BARE_POINT), 'utf8').trim());
+
+  // 打开一个没有任何 remote 的本地仓库
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开仓库' }).first().click();
+  const openDialog = page.locator('.n-modal').filter({ hasText: '打开仓库' });
+  await expect(openDialog).toBeVisible();
+  await openDialog.getByPlaceholder('/Users/me/projects/my-repo').fill(localRepoPath);
+  await openDialog.getByRole('button', { name: '打开', exact: true }).click();
+  await expect(openDialog).toBeHidden();
+  await waitForNoOverlay(page);
+  await expect(page.getByText('共 1 个提交')).toBeVisible();
+
+  // 无远程时 Push 不置灰：点击直接把「仓库设置 → 远程仓库」摆到用户面前
+  const settingsDialog = page.locator('.n-modal').filter({ hasText: '仓库设置' });
+  await expect(page.getByTestId('push-button')).toBeEnabled();
+  await page.getByTestId('push-button').click();
+  await expect(settingsDialog).toBeVisible();
+  await expect(settingsDialog.getByText('还没有远程仓库')).toBeVisible();
+
+  // 添加 origin → 指向本地 bare 远程
+  await settingsDialog.getByTestId('remote-add').click();
+  await settingsDialog.getByPlaceholder('origin').fill('origin');
+  await settingsDialog.getByPlaceholder('https://host/repo.git').fill(localBarePath);
+  await settingsDialog.getByTestId('remote-save').click();
+
+  const remoteRow = settingsDialog.locator('[data-testid="remote-row"]');
+  await expect(remoteRow).toHaveCount(1);
+  await expect(remoteRow).toHaveAttribute('data-name', 'origin');
+  await expect(remoteRow).toContainText(localBarePath);
+
+  await settingsDialog.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(settingsDialog).toBeHidden();
+  await waitForNoOverlay(page);
+
+  // 添加成功后自动 Fetch 一次，进度进操作日志
+  await page.locator('button:has-text("操作日志")').first().click();
+  await expect(page.locator('text=开始 fetch origin').first()).toBeVisible();
+  // 等自动 Fetch 收尾，否则紧接着的 Push 会撞上每仓库写锁（REPO_BUSY）
+  await expect(page.locator('text=执行中…')).toHaveCount(0, { timeout: 20000 });
+
+  // 有 remote 之后 Push 变成「无 upstream」，弹窗文案用实际配置的 remote 名
+  await expect(page.getByText('无 upstream')).toBeVisible();
+  await page.getByTestId('push-button').click();
+  const upstreamDialog = page.locator('.n-dialog').filter({ hasText: '未设置上游分支' });
+  await expect(upstreamDialog).toBeVisible();
+  await expect(upstreamDialog).toContainText('origin');
+  await upstreamDialog.getByRole('button', { name: '设置并推送' }).click();
+  await expect(upstreamDialog).toBeHidden();
+
+  // 推送成功后上游建立，「无 upstream」标记消失
+  await expect(page.getByText('无 upstream')).toHaveCount(0, { timeout: 20000 });
+
+  // 刷新后会话恢复，侧栏远程分支按 remote 分组展示（首次 push 建立了 origin/main）
+  await page.reload();
+  await expect(page.getByText('共 1 个提交')).toBeVisible();
+  await expect(
+    page.locator('[data-testid="remote-group"]').filter({ hasText: 'origin' }),
+  ).toBeVisible({ timeout: 20000 });
+  await expect(
+    page.locator('[data-testid="remote-branch"]').filter({ hasText: 'main' }),
+  ).toBeVisible();
 });

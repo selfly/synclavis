@@ -51,7 +51,7 @@ function cancel(): void {
     <div class="flex h-[38px] items-center gap-2 px-2">
       <FetchButton :repo-id="repoId" />
       <PullButton :repo-id="repoId" />
-      <PushButton :repo-id="repoId" />
+      <PushButton :repo-id="repoId" @open-settings="emit('settings')" />
       <StashButton :repo-id="repoId" />
 
       <span class="ml-2 text-xxs text-text-dim">
@@ -90,7 +90,7 @@ function cancel(): void {
         size="tiny"
         quaternary
         :class="progress || busy ? '' : 'ml-auto'"
-        title="仓库设置（SSH 私钥 / HTTPS 凭据 / Pull 策略）"
+        title="仓库设置（远程仓库 / SSH 私钥 / HTTPS 凭据 / Pull 策略）"
         @click="emit('settings')"
       >
         <template #icon><Settings :size="13" /></template>

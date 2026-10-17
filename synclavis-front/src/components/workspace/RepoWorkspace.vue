@@ -20,6 +20,7 @@ import {
 } from '@/utils/layout';
 
 const props = defineProps<{ repoId: string }>();
+const emit = defineEmits<{ (e: 'settings'): void }>();
 
 const repos = useReposStore();
 const tabs = useTabsStore();
@@ -212,7 +213,7 @@ watch(
 
     <!-- 三栏均在同一行内独立滚动：整页永不出现滚动条（见《详细设计文档》§9.5） -->
     <div ref="workspaceRow" class="flex min-h-0 min-w-0 flex-1">
-      <RepoSidebar :repo-id="repoId" :width="sidebarWidth" />
+      <RepoSidebar :repo-id="repoId" :width="sidebarWidth" @settings="emit('settings')" />
       <ResizeHandle
         axis="x"
         :size="sidebarWidth"
