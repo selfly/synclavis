@@ -2,7 +2,14 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
-import { HISTORY_COMMITS } from './global-setup';
+import {
+  HISTORY_COMMITS,
+  STAGED_PATCH_LINE,
+  TRACKED_FILE,
+  UNTRACKED_CONTENT,
+  UNTRACKED_FILE,
+  WORKING_PATCH_LINE,
+} from './global-setup';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoPath = readFileSync(join(here, '.repo-path'), 'utf8').trim();
@@ -304,4 +311,63 @@ test('E-09 提交列表列宽可拖拽、左侧栏最小宽度为 120px', async 
   await expect
     .poll(async () => (await layoutMetrics(page)).sidebarWidth)
     .toBeGreaterThanOrEqual(before.sidebarWidth - 2);
+});
+
+/**
+ * E-10：点击暂存区/未暂存/未跟踪文件，在右侧查看它改了哪些内容。
+ *
+ * 覆盖三种状态 + 「暂存后该文件换分区」+「点 +/- 按钮不应改变当前查看的文件」+「切回提交来源」。
+ */
+test('E-10 暂存区文件可点击查看差异，暂存后差异跟着切换', async ({ page }) => {
+  await ensureRepoOpen(page);
+
+  const panel = page.getByTestId('commit-panel');
+  const header = page.getByTestId('diff-header');
+  const patch = page.getByTestId('diff-patch');
+  // 选中态用 data-selected 暴露，避免与行上的 hover:bg-bg-hover 混淆
+  const selectedRows = panel.locator('li[data-selected="true"]');
+
+  // 1) 已暂存文件：HEAD ↔ 索引
+  await panel.locator('li', { hasText: TRACKED_FILE }).first().click();
+  await expect(header).toContainText('已暂存');
+  await expect(header).toContainText(TRACKED_FILE);
+  await expect(patch).toContainText(STAGED_PATCH_LINE);
+  await expect(patch).not.toContainText(WORKING_PATCH_LINE);
+  await expect(selectedRows).toHaveCount(1);
+
+  // 2) 未暂存文件：索引 ↔ 工作区
+  await panel.locator('li', { hasText: 'README.md' }).first().click();
+  await expect(header).toContainText('未暂存');
+  await expect(header).toContainText('README.md');
+  await expect(patch).toContainText(WORKING_PATCH_LINE);
+  await expect(patch).not.toContainText(STAGED_PATCH_LINE);
+
+  // 3) 未跟踪文件：按 ADD 呈现，patch 含文件内容
+  await panel.locator('li', { hasText: UNTRACKED_FILE }).first().click();
+  await expect(header).toContainText('未暂存');
+  await expect(header).toContainText(UNTRACKED_FILE);
+  await expect(header).toContainText('ADD');
+  await expect(patch).toContainText(UNTRACKED_CONTENT);
+
+  // 4) 点 README.md 行上的「+」：click.stop 保证不改变当前查看的文件（仍是 notes.txt）
+  const unstagedReadme = panel.locator('li', { hasText: 'README.md' }).first();
+  await unstagedReadme.hover();
+  await unstagedReadme.locator('button[title="暂存"]').click();
+  await expect(header).toContainText(UNTRACKED_FILE);
+  await expect(patch).toContainText(UNTRACKED_CONTENT);
+
+  // 暂存后 README.md 只剩「已暂存」一行；点它应看到 HEAD↔索引 的内容
+  await expect
+    .poll(async () => panel.locator('li', { hasText: 'README.md' }).count())
+    .toBe(1);
+  await panel.locator('li', { hasText: 'README.md' }).first().click();
+  await expect(header).toContainText('已暂存');
+  await expect(patch).toContainText(WORKING_PATCH_LINE);
+  await expect(patch).not.toContainText(STAGED_PATCH_LINE);
+
+  // 5) 切回提交来源：工作区文件高亮与差异都让位给提交
+  await page.getByTestId('commit-row').first().click();
+  await expect(header).toContainText('提交');
+  await expect(page.locator('text=个文件变更')).toBeVisible();
+  await expect(selectedRows).toHaveCount(0);
 });

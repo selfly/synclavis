@@ -17,6 +17,25 @@ const detail = computed(() => repos.detail(props.repoId));
 const staged = computed(() => detail.value.status?.staged ?? []);
 const unstaged = computed(() => detail.value.status?.unstaged ?? []);
 const untracked = computed(() => detail.value.status?.untracked ?? []);
+const selectedFile = computed(() => repos.worktreeFile(props.repoId));
+
+/**
+ * 同一路径可能同时出现在「已暂存」和「未暂存」（部分暂存），
+ * 因此高亮必须连分区一起比，否则两个分区会同时亮。
+ */
+function isSelected(path: string, stagedFile: boolean): boolean {
+  const current = selectedFile.value;
+  return current !== null && current.path === path && current.staged === stagedFile;
+}
+
+/** 点击文件 → 在右侧查看它改了哪些内容（见《详细设计文档》§6.2） */
+async function inspect(path: string, stagedFile: boolean): Promise<void> {
+  try {
+    await repos.selectWorktreeFile(props.repoId, path, stagedFile);
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : String(error));
+  }
+}
 
 async function doStage(paths: string[]): Promise<void> {
   try {
@@ -68,14 +87,18 @@ async function submit(amend: boolean): Promise<void> {
         <li
           v-for="file in staged"
           :key="`s-${file.path}`"
-          class="group flex items-center gap-1 px-2 py-0.5 text-xs hover:bg-bg-hover"
+          class="group flex cursor-pointer items-center gap-1 px-2 py-0.5 text-xs hover:bg-bg-hover"
+          :class="isSelected(file.path, true) ? 'bg-bg-hover' : ''"
+          :data-selected="isSelected(file.path, true)"
+          :title="`点击查看差异：${file.path}`"
+          @click="inspect(file.path, true)"
         >
           <span class="truncate text-success">{{ file.path }}</span>
           <button
             type="button"
             class="ml-auto shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-bg"
             title="取消暂存"
-            @click="doUnstage([file.path])"
+            @click.stop="doUnstage([file.path])"
           >
             <Minus :size="11" />
           </button>
@@ -83,14 +106,18 @@ async function submit(amend: boolean): Promise<void> {
         <li
           v-for="file in unstaged"
           :key="`u-${file.path}`"
-          class="group flex items-center gap-1 px-2 py-0.5 text-xs hover:bg-bg-hover"
+          class="group flex cursor-pointer items-center gap-1 px-2 py-0.5 text-xs hover:bg-bg-hover"
+          :class="isSelected(file.path, false) ? 'bg-bg-hover' : ''"
+          :data-selected="isSelected(file.path, false)"
+          :title="`点击查看差异：${file.path}`"
+          @click="inspect(file.path, false)"
         >
           <span class="truncate text-text-dim">{{ file.path }}</span>
           <button
             type="button"
             class="ml-auto shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-bg"
             title="暂存"
-            @click="doStage([file.path])"
+            @click.stop="doStage([file.path])"
           >
             <Plus :size="11" />
           </button>
@@ -98,14 +125,18 @@ async function submit(amend: boolean): Promise<void> {
         <li
           v-for="path in untracked"
           :key="`n-${path}`"
-          class="group flex items-center gap-1 px-2 py-0.5 text-xs hover:bg-bg-hover"
+          class="group flex cursor-pointer items-center gap-1 px-2 py-0.5 text-xs hover:bg-bg-hover"
+          :class="isSelected(path, false) ? 'bg-bg-hover' : ''"
+          :data-selected="isSelected(path, false)"
+          :title="`点击查看差异：${path}`"
+          @click="inspect(path, false)"
         >
           <span class="truncate text-warn">{{ path }}</span>
           <button
             type="button"
             class="ml-auto shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-bg"
             title="暂存"
-            @click="doStage([path])"
+            @click.stop="doStage([path])"
           >
             <Plus :size="11" />
           </button>

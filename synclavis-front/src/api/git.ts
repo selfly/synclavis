@@ -54,6 +54,17 @@ export const gitApi = {
       `/api/repos/${repoId}/commits/${commitId}/diff${path ? `?path=${encodeURIComponent(path)}` : ''}`,
     ),
 
+  /**
+   * 暂存区/工作区单文件差异（见《详细设计文档》§6.2）。
+   *
+   * `staged=true` 比较 HEAD↔索引（"已暂存"的内容）；
+   * `staged=false` 比较 索引↔工作区（"未暂存"与未跟踪文件）。
+   */
+  worktreeDiff: (repoId: string, path: string, staged: boolean) =>
+    http.get<DiffResponse>(
+      `/api/repos/${repoId}/worktree/diff?path=${encodeURIComponent(path)}&staged=${staged}`,
+    ),
+
   stashes: (repoId: string) => http.get<StashInfo[]>(`/api/repos/${repoId}/stash`),
 
   stashCreate: (repoId: string, body: { includeUntracked?: boolean; message?: string } = {}) =>

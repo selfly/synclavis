@@ -86,6 +86,18 @@ public class GitController {
         return ApiResponse.ok(diffService.commitDiff(repoId, commitId, path));
     }
 
+    /**
+     * 暂存区/工作区单文件差异：{@code staged=true} 为 HEAD↔索引，{@code false} 为 索引↔工作区。
+     *
+     * <p>见《详细设计文档》§6.2「暂存区/工作区单文件差异」。</p>
+     */
+    @GetMapping("/worktree/diff")
+    public ApiResponse<DiffResponseDto> worktreeDiff(@PathVariable("id") String repoId,
+                                                     @RequestParam("path") String path,
+                                                     @RequestParam(value = "staged", defaultValue = "false") boolean staged) {
+        return ApiResponse.ok(diffService.worktreeDiff(repoId, path, staged));
+    }
+
     @GetMapping("/stash")
     public ApiResponse<List<StashInfoDto>> stashList(@PathVariable("id") String repoId) {
         return ApiResponse.ok(stashService.list(repoId));

@@ -15,6 +15,12 @@ export interface LogFilter {
   ref: string;
 }
 
+/** 选中的工作区文件：`staged` 区分「已暂存」与「未暂存/未跟踪」两个分区 */
+export interface WorktreeFileRef {
+  path: string;
+  staged: boolean;
+}
+
 export interface RepoDetail {
   status: RepoStatus | null;
   branches: BranchInfo[];
@@ -47,6 +53,8 @@ export const useReposStore = defineStore('repos', {
   state: () => ({
     details: {} as Record<string, RepoDetail>,
     selectedCommit: {} as Record<string, string | null>,
+    /** 与 selectedCommit 互斥：选提交看提交差异，选文件看工作区差异 */
+    selectedFile: {} as Record<string, WorktreeFileRef | null>,
     logFilter: {} as Record<string, LogFilter>,
   }),
 
@@ -56,6 +64,9 @@ export const useReposStore = defineStore('repos', {
     },
     selected(state) {
       return (repoId: string): string | null => state.selectedCommit[repoId] ?? null;
+    },
+    worktreeFile(state) {
+      return (repoId: string): WorktreeFileRef | null => state.selectedFile[repoId] ?? null;
     },
     filter(state) {
       return (repoId: string): LogFilter => state.logFilter[repoId] ?? emptyFilter();
@@ -127,6 +138,8 @@ export const useReposStore = defineStore('repos', {
           detail.commits = log.value.commits;
           detail.total = log.value.total;
         }
+        // 选中的工作区文件：刷新后重新取一次，避免展示过期内容
+        await this.resyncWorktreeSelection(repoId, true);
       } finally {
         detail.loading = false;
       }
@@ -178,8 +191,69 @@ export const useReposStore = defineStore('repos', {
     },
 
     async selectCommit(repoId: string, commitId: string): Promise<void> {
+      const detail = this.ensure(repoId);
       this.selectedCommit[repoId] = commitId;
+      this.selectedFile[repoId] = null;
+      // 先清空：切换来源时不要把上一个来源的 patch 挂在新标题下
+      detail.diff = null;
       await this.loadDiff(repoId, commitId);
+    },
+
+    /**
+     * 选中暂存区/工作区文件并加载其差异。
+     *
+     * <p>同一路径可能同时出现在两个分区（部分暂存），所以 `staged` 由点击的那个分区决定，
+     * 不能用「已暂存优先」之类的猜测。</p>
+     */
+    async selectWorktreeFile(repoId: string, path: string, staged: boolean): Promise<void> {
+      const detail = this.ensure(repoId);
+      this.selectedFile[repoId] = { path, staged };
+      this.selectedCommit[repoId] = null;
+      detail.diff = null;
+      detail.diff = await gitApi.worktreeDiff(repoId, path, staged);
+    },
+
+    /**
+     * 索引/工作区变化后校正工作区文件选择。
+     *
+     * <p>暂存/取消暂存会把同一文件从一个分区换到另一个分区，提交则会让它彻底消失：
+     * 前者要把选择与 Diff 跟着切过去，后者要清掉，避免展示过期差异。</p>
+     *
+     * @param force 即使分区没变也重新拉取（F5 之类的手动刷新语义）
+     */
+    async resyncWorktreeSelection(repoId: string, force = false): Promise<void> {
+      const current = this.selectedFile[repoId];
+      if (!current) {
+        return;
+      }
+      const detail = this.ensure(repoId);
+      const status = detail.status;
+      const inStaged = status ? status.staged.some((file) => file.path === current.path) : false;
+      const inUnstaged = status
+        ? status.unstaged.some((file) => file.path === current.path)
+              || status.untracked.includes(current.path)
+        : false;
+
+      let nextStaged: boolean | null = null;
+      if (inStaged && inUnstaged) {
+        // 两侧都有（部分暂存）：尊重用户点的那个分区
+        nextStaged = current.staged;
+      } else if (inStaged) {
+        nextStaged = true;
+      } else if (inUnstaged) {
+        nextStaged = false;
+      }
+
+      if (nextStaged === null) {
+        this.selectedFile[repoId] = null;
+        detail.diff = null;
+        return;
+      }
+      if (nextStaged === current.staged && !force) {
+        return;
+      }
+      this.selectedFile[repoId] = { path: current.path, staged: nextStaged };
+      detail.diff = await gitApi.worktreeDiff(repoId, current.path, nextStaged);
     },
 
     async loadDiff(repoId: string, commitId: string, path?: string): Promise<void> {
@@ -206,12 +280,14 @@ export const useReposStore = defineStore('repos', {
       const detail = this.ensure(repoId);
       detail.status = await gitApi.status(repoId);
       await this.loadLog(repoId, this.toQueryFilter(repoId));
+      await this.resyncWorktreeSelection(repoId);
     },
 
     /** 写操作后清理缓存 */
     invalidate(repoId: string): void {
       this.details[repoId] = emptyDetail();
       this.selectedCommit[repoId] = null;
+      this.selectedFile[repoId] = null;
     },
   },
 });

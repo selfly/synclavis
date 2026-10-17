@@ -10,6 +10,13 @@ const here = dirname(fileURLToPath(import.meta.url));
 /** 额外制造的提交数：必须让提交列表高度明显超过视口，才能暴露「整页被撑高」类缺陷 */
 export const HISTORY_COMMITS = 60;
 
+/** 工作区脏状态：点击暂存区文件查看差异的用例需要一个同时含三种状态的仓库 */
+export const TRACKED_FILE = 'tracked.txt';
+export const STAGED_PATCH_LINE = 'staged change line';
+export const WORKING_PATCH_LINE = 'working change line';
+export const UNTRACKED_FILE = 'notes.txt';
+export const UNTRACKED_CONTENT = 'untracked file content';
+
 /**
  * 创建 E2E 用的临时仓库，并把路径写入 .repo-path。
  *
@@ -36,6 +43,8 @@ export default async function globalSetup(): Promise<void> {
   git(['config', 'user.email', 'e2e@synclavis.local'], repo);
   git(['config', 'user.name', 'e2e'], repo);
   writeFileSync(join(repo, 'README.md'), '# synclavis e2e\n');
+  // 这个文件在最后会被改出一份「已暂存」的变更
+  writeFileSync(join(repo, TRACKED_FILE), 'tracked base\n');
   git(['add', '.'], repo);
   git(['commit', '-qm', 'init'], repo);
 
@@ -51,6 +60,15 @@ export default async function globalSetup(): Promise<void> {
   git(['-c', 'init.defaultBranch=main', 'clone', '-q', '--bare', repo, origin]);
   git(['remote', 'add', 'origin', origin], repo);
   git(['push', '-q', '-u', 'origin', 'main'], repo);
+
+  // 工作区脏状态（push 之后再制造，避免进远程）：
+  //   已暂存：TRACKED_FILE 追加一行并 add
+  //   未暂存：README.md 追加一行不 add
+  //   未跟踪：UNTRACKED_FILE
+  appendFileSync(join(repo, TRACKED_FILE), `${STAGED_PATCH_LINE}\n`);
+  git(['add', TRACKED_FILE], repo);
+  appendFileSync(join(repo, 'README.md'), `${WORKING_PATCH_LINE}\n`);
+  writeFileSync(join(repo, UNTRACKED_FILE), `${UNTRACKED_CONTENT}\n`);
 
   writeFileSync(join(here, '.repo-path'), repo, 'utf8');
 
