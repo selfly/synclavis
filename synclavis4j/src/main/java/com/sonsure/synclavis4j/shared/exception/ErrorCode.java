@@ -16,6 +16,8 @@ public enum ErrorCode {
     CANCELLED(409),
     PULL_NOT_FAST_FORWARD(409),
     REMOTE_EXISTS(409),
+    CHECKOUT_CONFLICT(409),
+    BRANCH_EXISTS(409),
 
     // 400 —— 参数 / 前置条件不满足
     NO_UPSTREAM(400),

@@ -189,7 +189,7 @@ public class GitOperationService extends AbstractGitService {
         } catch (CheckoutConflictException e) {
             throw new GitOperationException(ErrorCode.MERGE_CONFLICT,
                     "合并存在冲突，请解决后提交或放弃",
-                    new ArrayList<String>(conflictFiles(repository)), e);
+                    GitOperationException.conflictDetails(conflictFiles(repository)), e);
         }
     }
 
@@ -210,7 +210,7 @@ public class GitOperationService extends AbstractGitService {
                 || status == MergeResult.MergeStatus.CHECKOUT_CONFLICT) {
             throw new GitOperationException(ErrorCode.MERGE_CONFLICT,
                     "合并存在冲突，请解决后提交或放弃",
-                    new ArrayList<String>(conflictFiles(repository)));
+                    GitOperationException.conflictDetails(conflictFiles(repository)));
         }
         if (ffOnly) {
             throw new GitOperationException(ErrorCode.PULL_NOT_FAST_FORWARD,

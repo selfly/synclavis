@@ -1,6 +1,7 @@
 package com.sonsure.synclavis4j.git;
 
 import com.sonsure.synclavis4j.git.dto.BranchInfoDto;
+import com.sonsure.synclavis4j.git.dto.CheckoutRequest;
 import com.sonsure.synclavis4j.git.dto.CommitDto;
 import com.sonsure.synclavis4j.git.dto.CommitRequest;
 import com.sonsure.synclavis4j.git.dto.CommitResultDto;
@@ -62,6 +63,13 @@ public class GitController {
     @GetMapping("/branches")
     public ApiResponse<List<BranchInfoDto>> branches(@PathVariable("id") String repoId) {
         return ApiResponse.ok(branchService.branches(repoId));
+    }
+
+    /** 切换分支（`create=true` 时新建并切换）；同步返回切换后的仓库状态。 */
+    @PostMapping("/checkout")
+    public ApiResponse<RepoStatusDto> checkout(@PathVariable("id") String repoId,
+                                               @RequestBody(required = false) CheckoutRequest request) {
+        return ApiResponse.ok(branchService.checkout(repoId, request));
     }
 
     @GetMapping("/tags")

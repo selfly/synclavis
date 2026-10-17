@@ -33,7 +33,7 @@ public class GitWriteExecutor {
     /** rebase 中间态下禁止的操作（stage/unstage/commit 需放行以便解决冲突）。 */
     private static final java.util.Set<String> BLOCKED_DURING_REBASE =
             new java.util.HashSet<String>(java.util.Arrays.asList(
-                    "fetch", "pull", "push", "clone", "stash"));
+                    "fetch", "pull", "push", "clone", "stash", "checkout"));
 
     private final RepoLockRegistry locks;
     private final OperationRegistry operations;
