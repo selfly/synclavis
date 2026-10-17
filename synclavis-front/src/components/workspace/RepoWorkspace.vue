@@ -11,7 +11,13 @@ import { useElementHeight, useElementWidth } from '@/composables/useElementHeigh
 import { useReposStore } from '@/stores/repos';
 import { useSettingsStore } from '@/stores/settings';
 import { useTabsStore } from '@/stores/tabs';
-import { LAYOUT_BOUNDS, RIGHT_COLUMN_MIN_WIDTH } from '@/utils/layout';
+import {
+  COMMIT_MESSAGE_MIN_WIDTH,
+  DIFF_MIN_HEIGHT,
+  LAYOUT_BOUNDS,
+  RIGHT_COLUMN_MIN_WIDTH,
+  resolvePanelSize,
+} from '@/utils/layout';
 
 const props = defineProps<{ repoId: string }>();
 
@@ -25,34 +31,55 @@ const status = computed(
 );
 const rebasing = computed(() => status.value?.rebaseInProgress ?? false);
 
-/** Diff 区保底高度：拖提交面板时不允许把上方内容压光 */
-const DIFF_MIN_HEIGHT = 120;
+/** 分隔条视觉厚度；用来从容器宽度里扣掉被分隔条占掉的部分 */
+const HANDLE_SIZE = 5;
 
 const rightColumn = ref<HTMLElement | null>(null);
 const rightColumnHeight = useElementHeight(rightColumn);
+const rightColumnWidth = useElementWidth(rightColumn);
 
 /**
  * 拖拽期间的实时尺寸放在本地 preview，不写 store：
  * 避免拖拽过程产生大量状态变更，也避免与持久化响应互相回滚。
+ *
+ * 渲染值一律走 `resolvePanelSize`（preview 优先 + 钳到动态上限），
+ * 这样窗口变小/换显示器时已存的大尺寸不会把对侧内容压没；
+ * store 里的存值保持不动，窗口恢复后自动回到用户偏好。
  */
 const commitPanelPreview = ref<number | null>(null);
-const commitPanelHeight = computed(
-  () => commitPanelPreview.value ?? settings.layout.commitPanelHeight,
-);
 const commitPanelMax = computed(() => {
-  const available = rightColumnHeight.value - DIFF_MIN_HEIGHT;
+  // 扣掉分隔条本身，DIFF_MIN_HEIGHT 才是 Diff 区的净高度
+  const available = rightColumnHeight.value - DIFF_MIN_HEIGHT - HANDLE_SIZE;
   return Math.min(
     LAYOUT_BOUNDS.commitPanelHeight.max,
     Math.max(LAYOUT_BOUNDS.commitPanelHeight.min, available),
   );
 });
+const commitPanelHeight = computed(() =>
+  resolvePanelSize({
+    preview: commitPanelPreview.value,
+    stored: settings.layout.commitPanelHeight,
+    min: LAYOUT_BOUNDS.commitPanelHeight.min,
+    max: commitPanelMax.value,
+  }),
+);
 
-const sidebarPreview = ref<number | null>(null);
-const sidebarWidth = computed(() => sidebarPreview.value ?? settings.layout.sidebarWidth);
-
-const commitListPreview = ref<number | null>(null);
-const commitListWidth = computed(
-  () => commitListPreview.value ?? settings.layout.commitListWidth,
+/** 提交区内部：文件列表 + 分隔条 + 提交信息框 */
+const commitFileListPreview = ref<number | null>(null);
+const commitFileListMax = computed(() => {
+  const available = rightColumnWidth.value - COMMIT_MESSAGE_MIN_WIDTH - HANDLE_SIZE;
+  return Math.min(
+    LAYOUT_BOUNDS.commitFileListWidth.max,
+    Math.max(LAYOUT_BOUNDS.commitFileListWidth.min, available),
+  );
+});
+const commitFileListWidth = computed(() =>
+  resolvePanelSize({
+    preview: commitFileListPreview.value,
+    stored: settings.layout.commitFileListWidth,
+    min: LAYOUT_BOUNDS.commitFileListWidth.min,
+    max: commitFileListMax.value,
+  }),
 );
 
 /**
@@ -61,23 +88,42 @@ const commitListWidth = computed(
  */
 const workspaceRow = ref<HTMLElement | null>(null);
 const rowWidth = useElementWidth(workspaceRow);
-const HANDLE_TOTAL = 10;
+const horizontalBudget = computed(() =>
+  Math.max(0, rowWidth.value - RIGHT_COLUMN_MIN_WIDTH - 2 * HANDLE_SIZE),
+);
 
-const sidebarMax = computed(() => {
-  const available = rowWidth.value - commitListWidth.value - RIGHT_COLUMN_MIN_WIDTH - HANDLE_TOTAL;
-  return Math.min(
+// 先算侧栏、再算提交列表：单向依赖，避免两者互相引用造成的抖动
+const sidebarPreview = ref<number | null>(null);
+const sidebarMax = computed(() =>
+  Math.min(
     LAYOUT_BOUNDS.sidebarWidth.max,
-    Math.max(LAYOUT_BOUNDS.sidebarWidth.min, available),
-  );
-});
+    Math.max(LAYOUT_BOUNDS.sidebarWidth.min, horizontalBudget.value - LAYOUT_BOUNDS.commitListWidth.min),
+  ),
+);
+const sidebarWidth = computed(() =>
+  resolvePanelSize({
+    preview: sidebarPreview.value,
+    stored: settings.layout.sidebarWidth,
+    min: LAYOUT_BOUNDS.sidebarWidth.min,
+    max: sidebarMax.value,
+  }),
+);
 
-const commitListMax = computed(() => {
-  const available = rowWidth.value - sidebarWidth.value - RIGHT_COLUMN_MIN_WIDTH - HANDLE_TOTAL;
-  return Math.min(
+const commitListPreview = ref<number | null>(null);
+const commitListMax = computed(() =>
+  Math.min(
     LAYOUT_BOUNDS.commitListWidth.max,
-    Math.max(LAYOUT_BOUNDS.commitListWidth.min, available),
-  );
-});
+    Math.max(LAYOUT_BOUNDS.commitListWidth.min, horizontalBudget.value - sidebarWidth.value),
+  ),
+);
+const commitListWidth = computed(() =>
+  resolvePanelSize({
+    preview: commitListPreview.value,
+    stored: settings.layout.commitListWidth,
+    min: LAYOUT_BOUNDS.commitListWidth.min,
+    max: commitListMax.value,
+  }),
+);
 
 function onCommitPanelInput(size: number): void {
   commitPanelPreview.value = size;
@@ -86,6 +132,15 @@ function onCommitPanelInput(size: number): void {
 function onCommitPanelCommit(size: number): void {
   commitPanelPreview.value = null;
   void settings.setLayout({ commitPanelHeight: size });
+}
+
+function onCommitFileListInput(size: number): void {
+  commitFileListPreview.value = size;
+}
+
+function onCommitFileListCommit(size: number): void {
+  commitFileListPreview.value = null;
+  void settings.setLayout({ commitFileListWidth: size });
 }
 
 function onSidebarInput(size: number): void {
@@ -189,7 +244,14 @@ watch(
           @update:size="onCommitPanelInput"
           @change="onCommitPanelCommit"
         />
-        <CommitPanel :repo-id="repoId" :height="commitPanelHeight" />
+        <CommitPanel
+          :repo-id="repoId"
+          :height="commitPanelHeight"
+          :file-list-width="commitFileListWidth"
+          :file-list-max="commitFileListMax"
+          @update:file-list-width="onCommitFileListInput"
+          @commit-file-list-width="onCommitFileListCommit"
+        />
       </div>
     </div>
   </div>

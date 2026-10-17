@@ -50,6 +50,9 @@ public class SettingsService {
             if (layoutPatch.getCommitListWidth() != null) {
                 layout.setCommitListWidth(layoutPatch.getCommitListWidth());
             }
+            if (layoutPatch.getCommitFileListWidth() != null) {
+                layout.setCommitFileListWidth(layoutPatch.getCommitFileListWidth());
+            }
         }
         stateStore.updateGlobalSettings(settings);
         return settings;

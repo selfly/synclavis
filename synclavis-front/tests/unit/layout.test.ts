@@ -21,12 +21,16 @@ vi.mock('@/api/http', () => ({
 
 import { useSettingsStore } from '@/stores/settings';
 import {
+  COMMIT_MESSAGE_MIN_WIDTH,
   DEFAULT_LAYOUT,
+  DIFF_MIN_HEIGHT,
+  RIGHT_COLUMN_MIN_WIDTH,
   LAYOUT_BOUNDS,
   clampLayout,
   readLayoutCache,
   resolveDragSize,
   resolveLayout,
+  resolvePanelSize,
   resolveResizeDirection,
 } from '@/utils/layout';
 
@@ -48,12 +52,14 @@ describe('layout 工具（F-16 / F-17）', () => {
         logPanelHeight: 1,
         sidebarWidth: -20,
         commitListWidth: 99999,
+        commitFileListWidth: 99999,
       }),
     ).toEqual({
       commitPanelHeight: LAYOUT_BOUNDS.commitPanelHeight.max,
       logPanelHeight: LAYOUT_BOUNDS.logPanelHeight.min,
       sidebarWidth: LAYOUT_BOUNDS.sidebarWidth.min,
       commitListWidth: LAYOUT_BOUNDS.commitListWidth.max,
+      commitFileListWidth: LAYOUT_BOUNDS.commitFileListWidth.max,
     });
   });
 
@@ -118,8 +124,8 @@ describe('layout 工具（F-16 / F-17）', () => {
   it('缓存损坏时回退默认值，不抛异常', () => {
     localStorage.setItem(CACHE_KEY, '{not json');
     expect(readLayoutCache()).toEqual(DEFAULT_LAYOUT);
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ commitPanelHeight: 9999 }));
-    expect(readLayoutCache().commitPanelHeight).toBe(600);
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ commitPanelHeight: 999999 }));
+    expect(readLayoutCache().commitPanelHeight).toBe(LAYOUT_BOUNDS.commitPanelHeight.max);
   });
 });
 
@@ -196,6 +202,59 @@ describe('settings.setLayout（F-18）', () => {
 
   it('左侧栏最小宽度已按用户要求降为 120（回归：曾为 180）', () => {
     expect(LAYOUT_BOUNDS.sidebarWidth.min).toBe(120);
+  });
+
+  it('resolvePanelSize：preview 优先，且渲染值也被动态上限钳住（F-25）', () => {
+    // 正常情况：已存值在范围内
+    expect(resolvePanelSize({ preview: null, stored: 260, min: 140, max: 1000 })).toBe(260);
+    // 拖拽中 preview 优先
+    expect(resolvePanelSize({ preview: 320, stored: 260, min: 140, max: 1000 })).toBe(320);
+    // 窗口变窄（动态上限变小）：渲染钳住，但 store 里的存值不变
+    expect(resolvePanelSize({ preview: null, stored: 1600, min: 140, max: 460 })).toBe(460);
+    // 下限同样生效
+    expect(resolvePanelSize({ preview: null, stored: 10, min: 140, max: 460 })).toBe(140);
+    // max < min 时以 min 为准（极窄容器的兜底）
+    expect(resolvePanelSize({ preview: null, stored: 300, min: 140, max: 90 })).toBe(140);
+  });
+
+  it('Diff 区保底高度为 60px（回归：曾为 120px，偏高）（F-26）', () => {
+    expect(DIFF_MIN_HEIGHT).toBe(60);
+    // 静态上限只作安全网，不能比动态上限先绑住——否则 Diff 压不到保底值
+    expect(LAYOUT_BOUNDS.commitPanelHeight.max).toBe(2560);
+    expect(LAYOUT_BOUNDS.commitFileListWidth.max).toBe(2560);
+  });
+
+  it('三个"对侧保底"常量都被显式固定，避免被顺手改小（F-26）', () => {
+    // 宽度保底：Diff 区 260 / 提交信息框 180；高度保底：Diff 区 60
+    expect(RIGHT_COLUMN_MIN_WIDTH).toBe(260);
+    expect(COMMIT_MESSAGE_MIN_WIDTH).toBe(180);
+    expect(DIFF_MIN_HEIGHT).toBe(60);
+  });
+
+  it('暂存区文件列表宽度：默认 260、越界钳制、补全缺失字段（F-24）', () => {
+    expect(DEFAULT_LAYOUT.commitFileListWidth).toBe(260);
+    expect(resolveLayout({ commitFileListWidth: 1 }).commitFileListWidth).toBe(140);
+    expect(resolveLayout({ commitFileListWidth: 999999 }).commitFileListWidth).toBe(2560);
+    // 旧缓存没有这个字段时取默认值
+    expect(resolveLayout({ sidebarWidth: 300 }).commitFileListWidth).toBe(260);
+  });
+
+  it('暂存区文件列表宽度可单独持久化，不影响其它字段（F-24）', async () => {
+    mocks.put.mockResolvedValue({
+      theme: 'dark',
+      shortcuts: {},
+      recentRepos: [],
+      layout: fullLayout({ commitFileListWidth: 320 }),
+    });
+
+    const store = useSettingsStore();
+    await store.setLayout({ commitFileListWidth: 320 });
+
+    expect(mocks.put).toHaveBeenCalledWith('/api/settings', {
+      layout: { commitFileListWidth: 320 },
+    });
+    expect(store.layout.commitFileListWidth).toBe(320);
+    expect(store.layout.commitListWidth).toBe(DEFAULT_LAYOUT.commitListWidth);
   });
 
   it('提交列表列宽可单独持久化（只发变更字段）', async () => {

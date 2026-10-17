@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { COMMIT_MESSAGE_MIN_WIDTH, DEFAULT_LAYOUT, DIFF_MIN_HEIGHT } from '../../src/utils/layout';
 import {
   HISTORY_COMMITS,
   STAGED_PATCH_LINE,
@@ -129,6 +130,22 @@ async function backendLayout(page: Page) {
   return body.data.layout;
 }
 
+/**
+ * 把布局尺寸重置到已知基线。
+ *
+ * <p>分隔条类用例必须先固定起点：上一轮若把尺寸留在接近上限的位置，
+ * 本轮的拖拽量会被钳制、断言随之失效（E-11 就这样翻过车）。
+ * 用接口写基线而不是「拖回去」，同样是为了避免钳制带来的残留。</p>
+ */
+async function resetLayout(
+  page: Page,
+  patch: Partial<Record<keyof typeof DEFAULT_LAYOUT, number>>,
+): Promise<void> {
+  await page.request.put('/api/settings', { data: { layout: patch } });
+  await page.reload();
+  await expect(page.getByTestId('commit-panel')).toBeVisible();
+}
+
 test('E-01 打开仓库后出现 Tab、快捷操作栏与三栏工作区', async ({ page }) => {
   await ensureRepoOpen(page);
 
@@ -240,7 +257,10 @@ test('E-07 长提交历史下提交流常驻视口且列表内部滚动', async 
 test('E-08 提交区拖拽调高并持久化到后端', async ({ page }) => {
   await ensureRepoOpen(page);
 
+  await resetLayout(page, { commitPanelHeight: DEFAULT_LAYOUT.commitPanelHeight });
   const before = await layoutMetrics(page);
+  expect(before.panelHeight).toBe(DEFAULT_LAYOUT.commitPanelHeight);
+
   await dragHandle(page, '调整提交区高度', 0, -80);
   await expect
     .poll(async () => (await layoutMetrics(page)).panelHeight)
@@ -258,22 +278,39 @@ test('E-08 提交区拖拽调高并持久化到后端', async ({ page }) => {
   // 刷新后仍然保持
   await page.reload();
   await expect(page.getByTestId('commit-panel')).toBeVisible();
-  const reloaded = await layoutMetrics(page);
-  expect(Math.abs(reloaded.panelHeight - after.panelHeight)).toBeLessThanOrEqual(2);
+  expect(Math.abs((await layoutMetrics(page)).panelHeight - after.panelHeight)).toBeLessThanOrEqual(2);
 
-  // 复原，避免影响后续用例
-  await dragHandle(page, '调整提交区高度', 0, 80);
-  await expect
-    .poll(async () => (await layoutMetrics(page)).panelHeight)
-    .toBeLessThanOrEqual(before.panelHeight + 2);
+  // 一路向上拖到上限：Diff 区必须还剩 DIFF_MIN_HEIGHT，而不是被压光
+  // （回归：保底曾是 120px，偏高）
+  await dragHandle(page, '调整提交区高度', 0, -2000);
+  const maxedPanel = await layoutMetrics(page);
+  const diffHeight = Math.round(
+    (await page.getByTestId('diff-viewer').boundingBox())?.height ?? -1,
+  );
+  expect(maxedPanel.panelHeight).toBeGreaterThan(after.panelHeight);
+  expect(diffHeight).toBeGreaterThanOrEqual(DIFF_MIN_HEIGHT - 5);
+  expect(diffHeight).toBeLessThanOrEqual(DIFF_MIN_HEIGHT + 5);
+  // 绝对闸门（不引用被测常量）：Diff 区确实能被压到 100px 以下，
+  // 说明保底不再是旧的 120px
+  expect(diffHeight).toBeLessThan(100);
+  expect(maxedPanel.panelBottom).toBeLessThanOrEqual(maxedPanel.innerHeight);
+  expect(maxedPanel.pageScrolls).toBe(false);
+
+  // 复原基线，避免影响后续用例
+  await resetLayout(page, { commitPanelHeight: DEFAULT_LAYOUT.commitPanelHeight });
 });
 
 /** E-09：提交列表列宽可拖拽并持久化；左侧栏最小宽度已降为 120px */
 test('E-09 提交列表列宽可拖拽、左侧栏最小宽度为 120px', async ({ page }) => {
   await ensureRepoOpen(page);
 
+  await resetLayout(page, {
+    sidebarWidth: DEFAULT_LAYOUT.sidebarWidth,
+    commitListWidth: DEFAULT_LAYOUT.commitListWidth,
+  });
   const before = await layoutMetrics(page);
-  expect(before.commitListWidth).toBeGreaterThan(0);
+  expect(before.commitListWidth).toBe(DEFAULT_LAYOUT.commitListWidth);
+  expect(before.sidebarWidth).toBe(DEFAULT_LAYOUT.sidebarWidth);
 
   // 1) 提交列表列宽：向右拖 100px → 变宽并持久化
   await dragHandle(page, '调整提交列表宽度', 100, 0);
@@ -302,15 +339,14 @@ test('E-09 提交列表列宽可拖拽、左侧栏最小宽度为 120px', async 
   await expect.poll(async () => (await layoutMetrics(page)).sidebarWidth).toBe(120);
   await expect.poll(async () => (await backendLayout(page)).sidebarWidth).toBe(120);
 
-  // 3) 按差值精确复原，避免给后续用例/后续运行留下被改过的布局
-  await dragHandle(page, '调整提交列表宽度', before.commitListWidth - widened.commitListWidth, 0);
-  await expect
-    .poll(async () => (await layoutMetrics(page)).commitListWidth)
-    .toBeLessThanOrEqual(before.commitListWidth + 2);
-  await dragHandle(page, '调整左侧栏宽度', before.sidebarWidth - 120, 0);
-  await expect
-    .poll(async () => (await layoutMetrics(page)).sidebarWidth)
-    .toBeGreaterThanOrEqual(before.sidebarWidth - 2);
+  // 3) 复原基线
+  await resetLayout(page, {
+    sidebarWidth: DEFAULT_LAYOUT.sidebarWidth,
+    commitListWidth: DEFAULT_LAYOUT.commitListWidth,
+  });
+  const restored = await layoutMetrics(page);
+  expect(restored.sidebarWidth).toBe(DEFAULT_LAYOUT.sidebarWidth);
+  expect(restored.commitListWidth).toBe(DEFAULT_LAYOUT.commitListWidth);
 });
 
 /**
@@ -370,4 +406,64 @@ test('E-10 暂存区文件可点击查看差异，暂存后差异跟着切换', 
   await expect(header).toContainText('提交');
   await expect(page.locator('text=个文件变更')).toBeVisible();
   await expect(selectedRows).toHaveCount(0);
+});
+
+/** E-11：暂存区文件列表的右边界（列表 ↔ 提交信息框）可拖拽并持久化 */
+test('E-11 暂存区文件列表宽度可拖拽并持久化', async ({ page }) => {
+  // 用宽窗口：只有在右列足够宽时，「拖到上限仍比提交信息框窄」才会复现
+  // （窄窗口下动态上限本来就小于静态上限，旧缺陷被掩盖）
+  await page.setViewportSize({ width: 1920, height: 800 });
+  await ensureRepoOpen(page);
+
+  const list = page.getByTestId('commit-file-list');
+  // 保底宽度约束的是「提交信息区」这个容器；textarea 还要再扣掉 padding 与组件内边距
+  const messageArea = page.getByTestId('commit-message-area');
+  const width = async (): Promise<number> => Math.round((await list.boundingBox())?.width ?? -1);
+
+  const resetBaseline = async (): Promise<void> => {
+    await page.request.put('/api/settings', {
+      data: { layout: { commitFileListWidth: DEFAULT_LAYOUT.commitFileListWidth } },
+    });
+    await page.reload();
+    await expect(page.getByTestId('commit-panel')).toBeVisible();
+  };
+
+  // 基线固定：上一轮若把宽度留在上限附近，「+90」会被钳住，断言就不成立了
+  await resetBaseline();
+  const before = await width();
+  expect(before).toBe(DEFAULT_LAYOUT.commitFileListWidth);
+
+  // 1) 向右拖 90px → 列表变宽，提交信息框仍有可用宽度
+  await dragHandle(page, '调整暂存区文件列表宽度', 90, 0);
+  await expect.poll(width).toBeGreaterThan(before + 70);
+  const after = await width();
+  expect(Math.round((await messageArea.boundingBox())?.width ?? 0)).toBeGreaterThan(100);
+  expect((await layoutMetrics(page)).pageScrolls).toBe(false);
+
+  // 2) 后端为准
+  await expect
+    .poll(async () => (await backendLayout(page)).commitFileListWidth)
+    .toBeGreaterThanOrEqual(after - 2);
+  await expect
+    .poll(async () => (await backendLayout(page)).commitFileListWidth)
+    .toBeLessThanOrEqual(after + 2);
+
+  // 3) 刷新后保持
+  await page.reload();
+  await expect(page.getByTestId('commit-panel')).toBeVisible();
+  expect(Math.abs((await width()) - after)).toBeLessThanOrEqual(2);
+
+  // 4) 一路向右拖到上限：列表必须能比提交信息框更宽，且信息框仍可用
+  //    （回归：静态上限 480 在宽窗口下会把列表卡住，永远比信息框窄）
+  await dragHandle(page, '调整暂存区文件列表宽度', 2000, 0);
+  const maxedList = await width();
+  const maxedBox = Math.round((await messageArea.boundingBox())?.width ?? 0);
+  expect(maxedList).toBeGreaterThan(after);
+  expect(maxedList).toBeGreaterThan(maxedBox);
+  expect(maxedBox).toBeGreaterThanOrEqual(COMMIT_MESSAGE_MIN_WIDTH - 5);
+  expect((await layoutMetrics(page)).pageScrolls).toBe(false);
+
+  // 5) 用 API 直接写回默认值复原（避免差值拖拽在上限附近被钳住而留下残留）
+  await resetBaseline();
+  expect(await width()).toBe(DEFAULT_LAYOUT.commitFileListWidth);
 });

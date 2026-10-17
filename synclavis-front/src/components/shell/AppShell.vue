@@ -17,7 +17,7 @@ import { useOperationsStore } from '@/stores/operations';
 import { useReposStore } from '@/stores/repos';
 import { useSettingsStore } from '@/stores/settings';
 import { useTabsStore } from '@/stores/tabs';
-import { LAYOUT_BOUNDS } from '@/utils/layout';
+import { LAYOUT_BOUNDS, resolvePanelSize } from '@/utils/layout';
 
 const tabs = useTabsStore();
 const repos = useReposStore();
@@ -35,13 +35,21 @@ const activeRepoId = computed(() => tabs.activeId);
 
 /** 日志面板：拖拽中走本地 preview，落盘走全局设置（后端持久化） */
 const logPanelPreview = ref<number | null>(null);
-const logPanelHeight = computed(() => logPanelPreview.value ?? settings.layout.logPanelHeight);
 const viewportHeight = useViewportHeight();
 const logPanelMax = computed(() =>
   Math.min(
     LAYOUT_BOUNDS.logPanelHeight.max,
     Math.max(LAYOUT_BOUNDS.logPanelHeight.min, Math.round(viewportHeight.value * 0.5)),
   ),
+);
+// 渲染值也钳制：窗口变矮时已存的大高度不能把主区压没
+const logPanelHeight = computed(() =>
+  resolvePanelSize({
+    preview: logPanelPreview.value,
+    stored: settings.layout.logPanelHeight,
+    min: LAYOUT_BOUNDS.logPanelHeight.min,
+    max: logPanelMax.value,
+  }),
 );
 
 function onLogPanelInput(size: number): void {

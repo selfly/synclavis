@@ -3,9 +3,23 @@ import { computed, ref } from 'vue';
 import { NButton, NInput } from 'naive-ui';
 import { useMessage } from 'naive-ui';
 import { Minus, Plus } from 'lucide-vue-next';
+import ResizeHandle from '@/components/common/ResizeHandle.vue';
 import { useReposStore } from '@/stores/repos';
+import { LAYOUT_BOUNDS } from '@/utils/layout';
 
-const props = defineProps<{ repoId: string; height: number }>();
+const props = defineProps<{
+  repoId: string;
+  height: number;
+  /** 「已暂存/未暂存」文件列表宽度 */
+  fileListWidth: number;
+  /** 动态上限：由 RepoWorkspace 按右列实测宽度算好，保证提交信息框不被压没 */
+  fileListMax: number;
+}>();
+
+const emit = defineEmits<{
+  (e: 'update:fileListWidth', value: number): void;
+  (e: 'commit-file-list-width', value: number): void;
+}>();
 
 const repos = useReposStore();
 const message = useMessage();
@@ -82,8 +96,12 @@ async function submit(amend: boolean): Promise<void> {
     </div>
 
     <div class="flex min-h-0 flex-1">
-      <!-- 宽度随右列自适应：左栏可拖宽后，固定 260px 会把提交信息框挤没 -->
-      <ul class="w-[45%] min-w-[140px] max-w-[260px] shrink-0 overflow-y-auto border-r border-border">
+      <!-- 宽度由 layout.commitFileListWidth 驱动，右边界可拖拽 -->
+      <ul
+        class="shrink-0 overflow-y-auto"
+        data-testid="commit-file-list"
+        :style="{ width: `${fileListWidth}px` }"
+      >
         <li
           v-for="file in staged"
           :key="`s-${file.path}`"
@@ -149,7 +167,17 @@ async function submit(amend: boolean): Promise<void> {
         </li>
       </ul>
 
-      <div class="flex min-w-0 flex-1 flex-col gap-1 p-2">
+      <ResizeHandle
+        axis="x"
+        :size="fileListWidth"
+        :min="LAYOUT_BOUNDS.commitFileListWidth.min"
+        :max="fileListMax"
+        label="调整暂存区文件列表宽度"
+        @update:size="emit('update:fileListWidth', $event)"
+        @change="emit('commit-file-list-width', $event)"
+      />
+
+      <div class="flex min-w-0 flex-1 flex-col gap-1 p-2" data-testid="commit-message-area">
         <n-input
           v-model:value="text"
           type="textarea"

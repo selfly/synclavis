@@ -15,6 +15,8 @@ export interface LayoutSettings {
   sidebarWidth: number;
   /** 中间提交列表列宽 */
   commitListWidth: number;
+  /** 提交区「已暂存/未暂存」文件列表宽度（右侧为提交信息框） */
+  commitFileListWidth: number;
 }
 
 export type LayoutKey = keyof LayoutSettings;
@@ -24,14 +26,34 @@ export const DEFAULT_LAYOUT: LayoutSettings = {
   logPanelHeight: 150,
   sidebarWidth: 240,
   commitListWidth: 380,
+  commitFileListWidth: 260,
 };
 
 export const LAYOUT_BOUNDS: Record<LayoutKey, { min: number; max: number }> = {
-  commitPanelHeight: { min: 120, max: 600 },
+  // 与 commitFileListWidth 同理：静态上界只是安全网，实际上限由右列实测高度推导
+  commitPanelHeight: { min: 120, max: 2560 },
   logPanelHeight: { min: 80, max: 480 },
   sidebarWidth: { min: 120, max: 420 },
   commitListWidth: { min: 240, max: 720 },
+  // 静态上界只是状态文件/接口契约的安全网；实际生效上限由面板实测宽度推导
+  // （面板宽 - 提交信息框保底），见 RepoWorkspace 的 commitFileListMax
+  commitFileListWidth: { min: 140, max: 2560 },
 };
+
+/**
+ * 提交区里提交信息框保留的最小宽度。
+ *
+ * 拖文件列表右边界时用它算动态上限，否则可以把输入框压没。
+ */
+export const COMMIT_MESSAGE_MIN_WIDTH = 180;
+
+/**
+ * Diff 区保留的最小高度。
+ *
+ * 向上拖提交区分隔条时用它算动态上限，否则可以把上方 Diff 区压光。
+ * 这是一条纯粹的界面保底，不参与后端持久化，因此不在 LAYOUT_BOUNDS 里。
+ */
+export const DIFF_MIN_HEIGHT = 60;
 
 /**
  * 左/中两栏拖拽时为右侧 Diff 区保留的最小宽度。
@@ -70,6 +92,23 @@ export function clampLayout(patch: Partial<LayoutSettings>): Partial<LayoutSetti
   return result;
 }
 
+/**
+ * 面板尺寸的**最终生效值**。
+ *
+ * <p>拖拽中的 preview 优先于已存值，然后一律钳到 `[min, max]`——
+ * `max` 通常是按容器实测尺寸算出来的动态上限。渲染也必须走这一步：
+ * 只钳拖拽而不钳渲染，窗口变小或换台更窄的显示器后，已存的大尺寸会把对侧内容压没
+ * （存值本身保持不动，窗口恢复后自动回到用户偏好）。</p>
+ */
+export function resolvePanelSize(input: {
+  preview: number | null;
+  stored: number;
+  min: number;
+  max: number;
+}): number {
+  return clamp(input.preview ?? input.stored, input.min, input.max);
+}
+
 /** 用任意来源（后端响应 / 缓存 / 半个对象）补全成一份合法布局 */
 export function resolveLayout(candidate?: Partial<LayoutSettings> | null): LayoutSettings {
   return {
@@ -85,6 +124,10 @@ export function resolveLayout(candidate?: Partial<LayoutSettings> | null): Layou
     commitListWidth: clampLayoutSize(
       'commitListWidth',
       candidate?.commitListWidth ?? DEFAULT_LAYOUT.commitListWidth,
+    ),
+    commitFileListWidth: clampLayoutSize(
+      'commitFileListWidth',
+      candidate?.commitFileListWidth ?? DEFAULT_LAYOUT.commitFileListWidth,
     ),
   };
 }
