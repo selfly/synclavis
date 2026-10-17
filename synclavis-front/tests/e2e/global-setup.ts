@@ -33,6 +33,13 @@ export const LOCAL_BARE_POINT = '.repo-bare-local';
 /** E-16：分支切换夹具（干净仓库、main 与 feature 内容不同、带 bare 远程的 dev 分支）点文件 */
 export const BRANCH_REPO_POINT = '.repo-path-branch';
 /**
+ * E-17：检出冲突夹具点文件。
+ *
+ * 远程 `origin/topic` 改过 README，本地 README 又已改脏 —— 检出它必然冲突，
+ * 用来验证「失败后不留半成品分支」（同一入口原地重试仍是冲突而不是同名分支）。
+ */
+export const CHECKOUT_CONFLICT_REPO_POINT = '.repo-path-checkout-conflict';
+/**
  * E-16：主仓库上故意造的「切过去会覆盖本地改动」的分支名。
  *
  * 它指向 `HEAD~5`，而 README.md 在工作区有未提交改动 —— 双击它必然被拒绝。
@@ -157,6 +164,33 @@ export default async function globalSetup(): Promise<void> {
   git(['checkout', '-q', 'main'], branchRepo);
   git(['branch', '-q', '-D', 'dev'], branchRepo);
   writeFileSync(join(here, BRANCH_REPO_POINT), branchRepo, 'utf8');
+
+  // E-17 前置：远程分支 `origin/topic` 改过 README，本地 README 又已改脏
+  //   → 双击它检出为本地跟踪分支必然冲突（README 会被覆盖），
+  //     用来验证检出失败后会回滚掉刚建出的半成品分支。
+  const checkoutRepo = join(base, 'checkout-conflict-repo');
+  const checkoutBare = join(base, 'checkout-conflict-remote.git');
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', checkoutRepo]);
+  git(['config', 'user.email', 'e2e@synclavis.local'], checkoutRepo);
+  git(['config', 'user.name', 'e2e'], checkoutRepo);
+  writeFileSync(join(checkoutRepo, 'README.md'), '# checkout conflict main\n');
+  git(['add', '.'], checkoutRepo);
+  git(['commit', '-qm', 'co-main-1'], checkoutRepo);
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', '--bare', checkoutBare]);
+  git(['remote', 'add', 'origin', checkoutBare], checkoutRepo);
+  git(['push', '-q', '-u', 'origin', 'main'], checkoutRepo);
+  // topic 分支：README 与 main 不同
+  git(['checkout', '-q', '-b', 'topic'], checkoutRepo);
+  writeFileSync(join(checkoutRepo, 'README.md'), '# checkout conflict topic\n');
+  git(['add', '.'], checkoutRepo);
+  git(['commit', '-qm', 'co-topic-1'], checkoutRepo);
+  git(['push', '-q', '-u', 'origin', 'topic'], checkoutRepo);
+  // 回到 main 并删掉本地 topic，只保留 origin/topic
+  git(['checkout', '-q', 'main'], checkoutRepo);
+  git(['branch', '-q', '-D', 'topic'], checkoutRepo);
+  // 本地 README 改脏（未暂存）：检出 origin/topic 会覆盖它
+  writeFileSync(join(checkoutRepo, 'README.md'), '# checkout conflict dirty\n');
+  writeFileSync(join(here, CHECKOUT_CONFLICT_REPO_POINT), checkoutRepo, 'utf8');
 
   // 记录运行前的主题，交给 global-teardown 还原：
   // E-03 会切换主题并持久化到后端，不还原的话每跑一次 E2E 都会翻转用户的主题偏好。

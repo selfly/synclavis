@@ -5,6 +5,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { COMMIT_MESSAGE_MIN_WIDTH, DEFAULT_LAYOUT, DIFF_MIN_HEIGHT } from '../../src/utils/layout';
 import {
   BRANCH_REPO_POINT,
+  CHECKOUT_CONFLICT_REPO_POINT,
   CONFLICT_BRANCH,
   HISTORY_COMMITS,
   LOCAL_BARE_POINT,
@@ -883,4 +884,58 @@ test('E-16 双击分支切换：本地切换 / 远程检出跟踪分支 / 脏工
   await expect(currentBranch()).toHaveAttribute('data-name', 'main');
   await conflictDialog.getByRole('button', { name: '知道了' }).click();
   await expect(conflictDialog).toBeHidden();
+});
+
+/**
+ * E-17：新建/检出分支失败后**不留半成品分支**（缺陷 20 的闸门）。
+ *
+ * JGit 的 `CheckoutCommand` 是「先建分支、再切工作区」，冲突时分支已经落盘。
+ * 不回滚的话，用户按提示 commit/Stash 后原地重试会撞 `BRANCH_EXISTS`，
+ * 看到「本地已存在同名分支」—— 与事实不符，只能手工删分支。
+ *
+ * 断言方式：同一弹窗连点两次「检出」，两次都必须报「会被覆盖」的文件清单。
+ */
+test('E-17 检出冲突后不残留半成品分支：原地重试仍是冲突而非同名分支', async ({ page }) => {
+  const repoPath = realpathSync(
+    readFileSync(join(here, CHECKOUT_CONFLICT_REPO_POINT), 'utf8').trim(),
+  );
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开仓库' }).first().click();
+  const openDialog = page.locator('.n-modal').filter({ hasText: '打开仓库' });
+  await expect(openDialog).toBeVisible();
+  await openDialog.getByPlaceholder('/Users/me/projects/my-repo').fill(repoPath);
+  await openDialog.getByRole('button', { name: '打开', exact: true }).click();
+  await expect(openDialog).toBeHidden();
+  await waitForNoOverlay(page);
+
+  // 就绪：当前在 main、仓库有 `origin/topic`
+  await expect(page.locator('[data-testid="local-branch"][data-current="true"]')).toHaveAttribute(
+    'data-name',
+    'main',
+  );
+  const remoteTopic = page.locator('[data-testid="remote-branch"][data-name="origin/topic"]');
+  await expect(remoteTopic).toBeVisible();
+
+  // 本地 README 已改脏 → 检出 origin/topic 必然冲突
+  await remoteTopic.dblclick();
+  const checkoutDialog = page.locator('.n-modal').filter({ hasText: '检出分支' });
+  await expect(checkoutDialog).toBeVisible();
+  const confirm = checkoutDialog.getByTestId('new-branch-confirm');
+  await confirm.click();
+  await expect(checkoutDialog).toContainText('会被覆盖');
+
+  // 关键：原地重试仍是冲突。若后端没回滚，这里会变成「本地已存在同名分支：topic」
+  await confirm.click();
+  await expect(checkoutDialog).toContainText('会被覆盖');
+  await expect(checkoutDialog).not.toContainText('本地已存在同名分支');
+
+  // 侧栏里没有留下本地 topic，当前分支仍是 main
+  await checkoutDialog.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(checkoutDialog).toBeHidden();
+  await expect(page.locator('[data-testid="local-branch"][data-name="topic"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="local-branch"][data-current="true"]')).toHaveAttribute(
+    'data-name',
+    'main',
+  );
 });

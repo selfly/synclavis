@@ -27,6 +27,8 @@ import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevObject;
 import org.eclipse.jgit.revwalk.RevTag;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
@@ -34,6 +36,8 @@ import org.springframework.stereotype.Service;
  */
 @Service
 public class GitBranchService extends AbstractGitService {
+
+    private static final Logger log = LoggerFactory.getLogger(GitBranchService.class);
 
     private static final int MAX_TAGS = 1000;
 
@@ -90,6 +94,10 @@ public class GitBranchService extends AbstractGitService {
      * <p><b>所有 JGit 异常必须在此捕获</b>：{@code GlobalExceptionHandler} 把
      * {@code CheckoutConflictException} 当作 merge/pull 的合并冲突映射为
      * {@link ErrorCode#MERGE_CONFLICT}，逃出去会显示成「合并存在冲突」。</p>
+     *
+     * <p>{@code create=true} 失败时会<b>回滚刚建出的分支</b>（含 upstream 配置）：JGit 的
+     * {@code CheckoutCommand} 是先建分支、再切工作区，冲突时分支已经落盘；不回滚的话用户
+     * 改完工作区原地重试会撞 {@link ErrorCode#BRANCH_EXISTS}。</p>
      */
     public RepoStatusDto checkout(final String repoId, final CheckoutRequest request) {
         final CheckoutRequest req = request == null ? new CheckoutRequest() : request;
@@ -120,6 +128,9 @@ public class GitBranchService extends AbstractGitService {
                         throw new GitOperationException(ErrorCode.INVALID_PARAM,
                                 "本地分支不存在：" + branch);
                     }
+                    // 失败回滚的前提：这个分支是本次调用新建的。
+                    // existedBefore=true 时失败只可能发生在建分支之前，那个 ref 不是我们的，绝不能删。
+                    final boolean existedBefore = repository.exactRef(Constants.R_HEADS + branch) != null;
                     CheckoutCommand command = git.checkout()
                             .setName(branch)
                             .setCreateBranch(req.isCreate());
@@ -128,7 +139,15 @@ public class GitBranchService extends AbstractGitService {
                         // branch.autoSetupMerge 的默认行为自动建立 upstream
                         command.setStartPoint(startPoint);
                     }
-                    command.call();
+                    boolean switched = false;
+                    try {
+                        command.call();
+                        switched = true;
+                    } finally {
+                        if (req.isCreate() && !switched && !existedBefore) {
+                            deleteHalfCreatedBranch(git, Constants.R_HEADS + branch);
+                        }
+                    }
                 } catch (CheckoutConflictException e) {
                     throw new GitOperationException(ErrorCode.CHECKOUT_CONFLICT,
                             "本地改动会被覆盖，请先提交或 Stash",
@@ -170,6 +189,26 @@ public class GitBranchService extends AbstractGitService {
         }
         if (!Repository.isValidRefName(Constants.R_HEADS + branch)) {
             throw new GitOperationException(ErrorCode.INVALID_PARAM, "非法的分支名：" + branch);
+        }
+    }
+
+    /**
+     * 回滚「新建分支 + 切换」失败后残留的半成品分支。
+     *
+     * <p>JGit 的 {@code CheckoutCommand} 在 {@code createBranch=true} 时先建分支、再切工作区，
+     * 切换失败（{@code CheckoutConflictException}）时分支引用与 {@code branch.<name>} 的
+     * upstream 配置已经写下去了，所以必须由调用方清理。</p>
+     *
+     * <p>传<b>完整引用名</b>（{@code refs/heads/<name>}）：短名会走 JGit 的 SEARCH_PATH，
+     * 形如 {@code origin/dev} 的分支名可能解析到远程跟踪引用上。{@code DeleteBranchCommand}
+     * 会一并清掉 upstream 配置，也不会删当前分支。</p>
+     */
+    private static void deleteHalfCreatedBranch(Git git, String fullRef) {
+        try {
+            git.branchDelete().setBranchNames(fullRef).setForce(true).call();
+        } catch (GitAPIException e) {
+            // 尽力而为：清理失败不能掩盖真正的切换错误
+            log.warn("回滚半成品分支失败 ref={}", fullRef, e);
         }
     }
 
