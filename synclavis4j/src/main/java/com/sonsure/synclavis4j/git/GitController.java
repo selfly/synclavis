@@ -83,8 +83,10 @@ public class GitController {
                                            @RequestParam(value = "limit", defaultValue = "100") int limit,
                                            @RequestParam(value = "author", required = false) String author,
                                            @RequestParam(value = "q", required = false) String keyword,
-                                           @RequestParam(value = "ref", required = false) String ref) {
-        return ApiResponse.ok(logService.log(repoId, skip, limit, author, keyword, ref));
+                                           @RequestParam(value = "ref", required = false) String ref,
+                                           @RequestParam(value = "all", defaultValue = "false") boolean all,
+                                           @RequestParam(value = "order", defaultValue = "date") String order) {
+        return ApiResponse.ok(logService.log(repoId, skip, limit, author, keyword, ref, all, order));
     }
 
     @GetMapping("/commits/{commitId}/diff")

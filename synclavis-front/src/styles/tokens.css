@@ -28,6 +28,9 @@ html[data-theme='dark'] {
   --sl-graph-1: #4ec9b0;
   --sl-graph-2: #dcdcaa;
   --sl-graph-3: #c586c0;
+  --sl-graph-4: #569cd6;
+  --sl-graph-5: #ce9178;
+  --sl-graph-6: #6a9955;
 }
 
 html[data-theme='light'] {
@@ -41,4 +44,7 @@ html[data-theme='light'] {
   --sl-graph-1: #0f766e;
   --sl-graph-2: #a16207;
   --sl-graph-3: #a21caf;
+  --sl-graph-4: #1d4ed8;
+  --sl-graph-5: #c2410c;
+  --sl-graph-6: #15803d;
 }

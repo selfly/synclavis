@@ -17,7 +17,14 @@ export interface LogQuery {
   author?: string;
   q?: string;
   ref?: string;
+  /** `true` = 遍历全部引用（等价 `git log --all`，见《详细设计文档》§6.2） */
+  all?: boolean;
+  /** 提交顺序：`date` = 按时间（缺省，≈ `git log --date-order`），`topo` = 同分支扎堆 */
+  order?: LogOrder;
 }
+
+/** 提交列表顺序（《详细设计文档》§6.2） */
+export type LogOrder = 'date' | 'topo';
 
 function toQuery(query: LogQuery): string {
   const parts: string[] = [];
@@ -35,6 +42,12 @@ function toQuery(query: LogQuery): string {
   }
   if (query.ref) {
     parts.push(`ref=${encodeURIComponent(query.ref)}`);
+  }
+  if (query.all !== undefined) {
+    parts.push(`all=${query.all}`);
+  }
+  if (query.order) {
+    parts.push(`order=${query.order}`);
   }
   return parts.length > 0 ? `?${parts.join('&')}` : '';
 }

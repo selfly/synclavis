@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { gitApi, type LogQuery } from '@/api/git';
+import { gitApi, type LogOrder, type LogQuery } from '@/api/git';
 import type {
   BranchInfo,
   Commit,
@@ -13,6 +13,20 @@ export interface LogFilter {
   author: string;
   q: string;
   ref: string;
+  /**
+   * 是否遍历全部引用（`git log --all` 语义，见《详细设计文档》§6.2）。
+   *
+   * <p>缺省 `true`：只被某个远程分支指向、当前分支不可达的提交也要出现在列表里
+   * （对齐 SourceGit 的默认行为）。切「当前分支」只存内存，不落盘。</p>
+   */
+  all: boolean;
+  /**
+   * 提交顺序（《详细设计文档》§6.2）。
+   *
+   * <p>缺省 `'date'`：父在子之后、其余按提交时间倒序（≈ `git log --date-order`，与 SourceGit 一致）；
+   * 切 `'topo'` 则同一分支的提交扎堆。只存内存，不落盘。</p>
+   */
+  order: LogOrder;
 }
 
 /** 选中的工作区文件：`staged` 区分「已暂存」与「未暂存/未跟踪」两个分区 */
@@ -46,7 +60,7 @@ function emptyDetail(): RepoDetail {
 }
 
 function emptyFilter(): LogFilter {
-  return { author: '', q: '', ref: '' };
+  return { author: '', q: '', ref: '', all: true, order: 'date' };
 }
 
 export const useReposStore = defineStore('repos', {
@@ -187,6 +201,9 @@ export const useReposStore = defineStore('repos', {
       if (filter.ref) {
         query.ref = filter.ref;
       }
+      // 显式传范围与顺序：`all=false` / `order=date` 也要带上，避免「切了但后端按默认值走」的歧义
+      query.all = filter.all;
+      query.order = filter.order;
       return query;
     },
 

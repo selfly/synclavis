@@ -10,4 +10,7 @@ tests/e2e/.repo-bare-local
 tests/e2e/.repo-path-branch
 tests/e2e/.repo-path-checkout-conflict
 tests/e2e/.repo-path-push
+tests/e2e/.repo-path-merge
+tests/e2e/.repo-path-remote-only
 tests/e2e/.repo-theme
+tests/e2e/.repo-path-order

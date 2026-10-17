@@ -16,13 +16,15 @@ import java.util.List;
 import java.util.Map;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ListBranchCommand;
-import org.eclipse.jgit.api.LogCommand;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.errors.IncorrectObjectTypeException;
+import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevSort;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.revwalk.filter.AndRevFilter;
 import org.eclipse.jgit.revwalk.filter.AuthorRevFilter;
@@ -45,37 +47,118 @@ public class GitLogService extends AbstractGitService {
         super(repositories, repoService);
     }
 
-    public LogResponseDto log(String repoId, int skip, int limit, String author, String keyword, String ref) {
+    public LogResponseDto log(String repoId, int skip, int limit, String author, String keyword, String ref,
+            boolean all, String order) {
         Repository repository = repo(repoId);
         try (Git git = Git.wrap(repository)) {
-            ObjectId start = (ref == null || ref.trim().isEmpty())
-                    ? repository.resolve(Constants.HEAD)
-                    : repository.resolve(ref.trim());
-            if (start == null) {
+            List<ObjectId> starts = resolveStarts(repository, ref, all);
+            if (starts.isEmpty()) {
                 return new LogResponseDto(0, new ArrayList<CommitDto>());
             }
 
             RevFilter filter = buildFilter(author, keyword);
             Map<String, List<String>> decorations = decorations(git);
 
-            LogCommand command = git.log()
-                    .setSkip(Math.max(skip, 0))
-                    .setMaxCount(limit <= 0 ? DEFAULT_LIMIT : limit);
-            if (filter != null) {
-                command.setRevFilter(filter);
-            }
-            command.add(start);
-
+            int from = Math.max(skip, 0);
+            int max = limit <= 0 ? DEFAULT_LIMIT : limit;
             List<CommitDto> commits = new ArrayList<CommitDto>();
-            for (RevCommit commit : command.call()) {
-                commits.add(toDto(commit, decorations));
+            RevWalk walk = new RevWalk(repository);
+            try {
+                // 显式排序（见《详细设计文档》§6.2 排序契约）：LogCommand 内部自建 RevWalk，注入不了排序
+                applyOrder(walk, order);
+                walk.setRevFilter(filter == null ? RevFilter.ALL : filter);
+                if (markStarts(walk, starts) == 0) {
+                    return new LogResponseDto(0, new ArrayList<CommitDto>());
+                }
+                int index = 0;
+                for (RevCommit commit : walk) {
+                    if (index++ < from) {
+                        continue;
+                    }
+                    if (commits.size() >= max) {
+                        break;
+                    }
+                    commits.add(toDto(commit, decorations));
+                }
+            } finally {
+                walk.close();
             }
-            return new LogResponseDto(count(repository, start, filter), commits);
+            return new LogResponseDto(count(repository, starts, filter), commits);
         } catch (GitAPIException e) {
             throw new GitOperationException(ErrorCode.INTERNAL, "读取提交历史失败：" + e.getMessage(), null, e);
         } catch (IOException e) {
             throw new GitOperationException(ErrorCode.INTERNAL, "读取提交历史失败：" + e.getMessage(), null, e);
         }
+    }
+
+    /**
+     * 遍历起点（见《详细设计文档》§6.2「引用范围契约」）。
+     *
+     * <p>`ref` 非空时以它为准、忽略 `all`；否则缺省从 `HEAD` 开始，`all=true` 时再加上
+     * `refs/heads/*`、`refs/remotes/*`、`refs/tags/*`（annotated tag 先 peel），等价 `git log --all`——
+     * 这样「只被某个远程分支指向、当前分支不可达」的提交也能出现在列表里。</p>
+     */
+    private List<ObjectId> resolveStarts(Repository repository, String ref, boolean all) throws IOException {
+        List<ObjectId> starts = new ArrayList<ObjectId>();
+        if (ref != null && !ref.trim().isEmpty()) {
+            addStart(starts, repository.resolve(ref.trim()));
+            return starts;
+        }
+        addStart(starts, repository.resolve(Constants.HEAD));
+        if (!all) {
+            return starts;
+        }
+        for (Ref candidate : repository.getRefDatabase()
+                .getRefsByPrefix(Constants.R_HEADS, Constants.R_REMOTES, Constants.R_TAGS)) {
+            addStart(starts, peel(repository, candidate));
+        }
+        return starts;
+    }
+
+    private void addStart(List<ObjectId> starts, ObjectId id) {
+        if (id != null && !starts.contains(id)) {
+            starts.add(id);
+        }
+    }
+
+    /** 返回成功 markStart 的起点数；指向 blob/tree 的 tag 与已失联的对象直接跳过。 */
+    private int markStarts(RevWalk walk, List<ObjectId> starts) throws IOException {
+        int marked = 0;
+        for (ObjectId start : starts) {
+            try {
+                walk.markStart(walk.parseCommit(start));
+                marked++;
+            } catch (IncorrectObjectTypeException e) {
+                // tag 指向 blob/tree：不是提交，跳过
+            } catch (MissingObjectException e) {
+                // 对象已缺失（例如坏引用）：跳过
+            }
+        }
+        return marked;
+    }
+
+    /**
+     * 提交列表排序（见《详细设计文档》§6.2 排序契约）。
+     *
+     * <ul>
+     *   <li>{@code date}（缺省）：{@link RevSort#TOPO} + {@link RevSort#COMMIT_TIME_DESC}，等价
+     *       {@code git log --date-order}——父必在子之后，其余按提交时间倒序，同一分支的提交会被其它
+     *       分支穿插（SourceGit 的默认观感）。{@code COMMIT_TIME_DESC} 必须与 {@code TOPO} 一起开：
+     *       只开日期排序在「时间戳倒挂」的链上会先吐更旧的父提交。</li>
+     *   <li>{@code topo}：{@link RevSort#TOPO_KEEP_BRANCH_TOGETHER}（≈ {@code git log --topo-order}），
+     *       同一分支的提交扎堆连续。**不能与 {@code TOPO} 同时启用**：JGit 的 StartGenerator 会直接抛
+     *       {@code IllegalStateException}。</li>
+     * </ul>
+     *
+     * <p>未知取值（含 null / 空串）一律回落 {@code date}，不报错（契约里写明）。</p>
+     */
+    private void applyOrder(RevWalk walk, String order) {
+        if ("topo".equalsIgnoreCase(order == null ? null : order.trim())) {
+            walk.sort(RevSort.TOPO_KEEP_BRANCH_TOGETHER, true);
+            return;
+        }
+        walk.sort(RevSort.COMMIT_TIME_DESC, true);
+        walk.sort(RevSort.TOPO, true);
     }
 
     private RevFilter buildFilter(String author, String keyword) {
@@ -90,11 +173,13 @@ public class GitLogService extends AbstractGitService {
         return filter;
     }
 
-    private int count(Repository repository, ObjectId start, RevFilter filter) throws IOException {
+    private int count(Repository repository, List<ObjectId> starts, RevFilter filter) throws IOException {
         RevWalk walk = new RevWalk(repository);
         try {
             walk.setRevFilter(filter == null ? RevFilter.ALL : filter);
-            walk.markStart(walk.parseCommit(start));
+            if (markStarts(walk, starts) == 0) {
+                return 0;
+            }
             int total = 0;
             for (RevCommit ignored : walk) {
                 total++;

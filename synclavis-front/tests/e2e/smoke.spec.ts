@@ -3,6 +3,7 @@ import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { COMMIT_MESSAGE_MIN_WIDTH, DEFAULT_LAYOUT, DIFF_MIN_HEIGHT } from '../../src/utils/layout';
+import { DEFAULT_LANE_WIDTH } from '../../src/utils/gitGraph';
 import {
   BRANCH_REPO_POINT,
   CHECKOUT_CONFLICT_REPO_POINT,
@@ -12,7 +13,19 @@ import {
   LOCAL_REPO_POINT,
   LONG_LINE_FILE,
   LONG_PATH_FILE,
+  MERGE_FEATURE_SUBJECT,
+  MERGE_REPO_POINT,
+  MERGE_SUBJECT,
   PUSH_REPO_POINT,
+  ORDER_DATE_SUBJECTS,
+  ORDER_REPO_POINT,
+  ORDER_TOPO_SUBJECTS,
+  REMOTE_ONLY_ALL_COMMITS,
+  REMOTE_ONLY_BRANCH,
+  REMOTE_ONLY_BRANCH_COMMITS,
+  REMOTE_ONLY_MAIN_SUBJECT,
+  REMOTE_ONLY_REPO_POINT,
+  REMOTE_ONLY_SUBJECT,
   STAGED_PATCH_LINE,
   TRACKED_FILE,
   UNTRACKED_CONTENT,
@@ -833,6 +846,13 @@ test('E-16 双击分支切换：本地切换 / 远程检出跟踪分支 / 脏工
     page.locator(`[data-testid="local-branch"][data-name="${name}"]`);
   const currentBranch = () => page.locator('[data-testid="local-branch"][data-current="true"]');
 
+  // 切到「当前分支」范围：本用例核对的是「检出后历史跟着换」，全引用下另一条分支的提交
+  // 本来就一直在列表里（E-20 专门覆盖那个默认），这里必须收紧到 HEAD 可达才有判别力。
+  const scopeToggle = page.getByTestId('log-scope-toggle');
+  await expect(scopeToggle).toHaveAttribute('data-scope', 'all');
+  await scopeToggle.click();
+  await expect(scopeToggle).toHaveAttribute('data-scope', 'branch');
+
   // 就绪：夹具仓库当前在 main（1 条提交）
   await expect(currentBranch()).toHaveAttribute('data-name', 'main');
   await expect(page.getByText('共 1 个提交')).toBeVisible();
@@ -1008,4 +1028,207 @@ test('E-18 推送预览列出待推送提交、取消不推、确认后归零', 
   await expect(dialog.getByTestId('push-preview-confirm')).toBeDisabled();
   await dialog.getByRole('button', { name: '取消', exact: true }).click();
   await expect(dialog).toBeHidden();
+});
+
+/**
+ * E-19 提交泳道图（timeline，P13）。
+ *
+ * ① merge 提交行有两条出边（首父本列竖线 + 到第二父的曲线），整列 2 lane；
+ * ② 同一列颜色恒定（按 lane 索引取模 → `--sl-graph-N`）；
+ * ③ 过滤后父提交不在集合里 → 该行**断线**（没有任何线段，只剩圆点）；
+ * ④ 线性长历史仓库仍是 1 列，且窗口化行数受限、整页无滚动条（E-07 闸门在新图列下仍成立）。
+ */
+test('E-19 提交泳道图：merge 两条出边、同列同色、过滤断线、不破坏布局', async ({ page }) => {
+  const mergeRepoPath = realpathSync(readFileSync(join(here, MERGE_REPO_POINT), 'utf8').trim());
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开仓库' }).first().click();
+  const openDialog = page.locator('.n-modal').filter({ hasText: '打开仓库' });
+  await expect(openDialog).toBeVisible();
+  await openDialog.getByPlaceholder('/Users/me/projects/my-repo').fill(mergeRepoPath);
+  await openDialog.getByRole('button', { name: '打开', exact: true }).click();
+  await expect(openDialog).toBeHidden();
+  await waitForNoOverlay(page);
+
+  // 就绪：6 条提交（merge-base + 2 main + 2 feature + 1 merge），整列 2 lane
+  await expect(page.getByText('共 6 个提交')).toBeVisible();
+  const list = page.getByTestId('commit-list');
+  await expect(list).toHaveAttribute('data-lane-count', '2');
+
+  // ① merge 行：两个 parent；svg 宽 = 2 列；2 条竖线 + 1 条曲线 + 1 个圆点
+  const mergeRow = page.getByTestId('commit-row').filter({ hasText: MERGE_SUBJECT });
+  await expect(mergeRow).toHaveAttribute('data-parents', '2');
+  const mergeSvg = mergeRow.locator('svg');
+  await expect(mergeSvg).toHaveAttribute('data-lane', '0');
+  await expect(mergeSvg).toHaveAttribute('width', String(2 * DEFAULT_LANE_WIDTH));
+  await expect(mergeSvg).toHaveAttribute('height', '44');
+  await expect(mergeSvg.locator('path')).toHaveCount(3);
+  // ② 第 0 列 = 第 1 色，第 1 列 = 第 2 色；到第二父的曲线跟随父所在列取色
+  await expect(mergeSvg.locator('path').nth(0)).toHaveAttribute('stroke', 'var(--sl-graph-1)');
+  await expect(mergeSvg.locator('path').nth(1)).toHaveAttribute('stroke', 'var(--sl-graph-2)');
+  await expect(mergeSvg.locator('path').nth(2)).toHaveAttribute('stroke', 'var(--sl-graph-2)');
+  await expect(mergeSvg.locator('path').nth(2)).toHaveAttribute('d', /C/);
+  await expect(mergeSvg.locator('circle')).toHaveAttribute('fill', 'var(--sl-graph-1)');
+
+  // ② 同列同色：feature 链两行都落在第 1 列 → 圆点都是第 2 色
+  const featureOne = page.getByTestId('commit-row').filter({ hasText: `${MERGE_FEATURE_SUBJECT}1` });
+  await expect(featureOne.locator('svg')).toHaveAttribute('data-lane', '1');
+  await expect(featureOne.locator('svg').locator('circle')).toHaveAttribute('fill', 'var(--sl-graph-2)');
+  const featureTwo = page.getByTestId('commit-row').filter({ hasText: `${MERGE_FEATURE_SUBJECT}2` });
+  await expect(featureTwo.locator('svg')).toHaveAttribute('data-lane', '1');
+
+  // ③ 过滤断线：只留 feature-1，它的父提交不在集合里 → 本行没有任何线段
+  const search = page.getByPlaceholder('搜索提交信息');
+  await search.fill(`${MERGE_FEATURE_SUBJECT}1`);
+  await search.press('Enter');
+  await expect(page.getByText('共 1 个提交')).toBeVisible();
+  const onlyRow = page.getByTestId('commit-row');
+  await expect(onlyRow).toHaveCount(1);
+  await expect(page.getByTestId('commit-list')).toHaveAttribute('data-lane-count', '1');
+  await expect(onlyRow.locator('svg').locator('path')).toHaveCount(0);
+  await expect(onlyRow.locator('svg').locator('circle')).toHaveCount(1);
+  await page.getByRole('button', { name: '重置' }).click();
+  await expect(page.getByText('共 6 个提交')).toBeVisible();
+
+  // ④ 长历史（线性，61 条）仓库：1 列 + 窗口化 + 整页无滚动条
+  await page.getByRole('button', { name: '打开仓库' }).first().click();
+  const openDialog2 = page.locator('.n-modal').filter({ hasText: '打开仓库' });
+  await expect(openDialog2).toBeVisible();
+  await openDialog2.getByPlaceholder('/Users/me/projects/my-repo').fill(repoPath);
+  await openDialog2.getByRole('button', { name: '打开', exact: true }).click();
+  await expect(openDialog2).toBeHidden();
+  await waitForNoOverlay(page);
+
+  await expect(page.getByText(`共 ${TOTAL_COMMITS} 个提交`)).toBeVisible();
+  const longList = page.getByTestId('commit-list');
+  await expect(longList).toHaveAttribute('data-lane-count', '1');
+  // 线性历史：每行只有「上半段 + 下半段」两条竖线（root 行只有上半段）→ 列宽 1 个 lane
+  await expect(page.getByTestId('commit-row').first().locator('svg')).toHaveAttribute(
+    'width',
+    String(DEFAULT_LANE_WIDTH),
+  );
+  // 窗口化仍生效，且图列没有把整页撑出滚动条（E-07 的核心闸门）
+  const metrics = await page.evaluate(() => ({
+    rows: document.querySelectorAll('[data-testid="commit-row"]').length,
+    docScrollHeight: document.documentElement.scrollHeight,
+    docClientHeight: document.documentElement.clientHeight,
+  }));
+  expect(metrics.rows).toBeLessThanOrEqual(40);
+  expect(metrics.rows).toBeGreaterThan(10);
+  expect(metrics.docScrollHeight).toBeLessThanOrEqual(metrics.docClientHeight + 1);
+});
+
+/**
+ * E-20 默认全引用（P13 引用范围契约）。
+ *
+ * 回归的是实测缺陷：`b8a099f888` 只被 `refs/remotes/origin/1.0.1` 指向、当前分支不可达，
+ * 只从 `HEAD` 遍历时整条链都不出现在列表里（SourceGit 因为覆盖全部引用而能看到）。
+ *
+ * ① 缺省 `data-scope="all"`：能看到只被远程分支指向的提交，且带 `origin/extra` 徽标、独立一列；
+ * ② 切「当前分支」：该行消失、total 减少、泳道收敛为 1 列；
+ * ③ 切回「全部引用」：复现（证明不是「加载一次」蒙对的）。
+ */
+test('E-20 默认全引用：HEAD 不可达的远程分支也能看到，可切回当前分支', async ({ page }) => {
+  const remoteOnlyPath = realpathSync(readFileSync(join(here, REMOTE_ONLY_REPO_POINT), 'utf8').trim());
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开仓库' }).first().click();
+  const openDialog = page.locator('.n-modal').filter({ hasText: '打开仓库' });
+  await expect(openDialog).toBeVisible();
+  await openDialog.getByPlaceholder('/Users/me/projects/my-repo').fill(remoteOnlyPath);
+  await openDialog.getByRole('button', { name: '打开', exact: true }).click();
+  await expect(openDialog).toBeHidden();
+  await waitForNoOverlay(page);
+
+  // ① 缺省全引用：2 条 main + 1 条只被 origin/extra 指向 = 3 条；两个尖端互为兄弟 → 2 列
+  await expect(page.getByText(`共 ${REMOTE_ONLY_ALL_COMMITS} 个提交`)).toBeVisible();
+  const toggle = page.getByTestId('log-scope-toggle');
+  await expect(toggle).toHaveAttribute('data-scope', 'all');
+  const list = page.getByTestId('commit-list');
+  await expect(list).toHaveAttribute('data-lane-count', '2');
+
+  const remoteRow = page.getByTestId('commit-row').filter({ hasText: REMOTE_ONLY_SUBJECT });
+  await expect(remoteRow).toHaveCount(1);
+  await expect(remoteRow).toContainText(`origin/${REMOTE_ONLY_BRANCH}`);
+
+  // ② 切「当前分支」：远程独占的提交消失，total 减到 2，泳道收敛到 1 列
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('data-scope', 'branch');
+  await expect(page.getByText(`共 ${REMOTE_ONLY_BRANCH_COMMITS} 个提交`)).toBeVisible();
+  await expect(page.getByTestId('commit-row').filter({ hasText: REMOTE_ONLY_SUBJECT })).toHaveCount(0);
+  await expect(page.getByTestId('commit-row').filter({ hasText: REMOTE_ONLY_MAIN_SUBJECT })).toHaveCount(1);
+  await expect(page.getByTestId('commit-list')).toHaveAttribute('data-lane-count', '1');
+
+  // ③ 切回「全部引用」：复现
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('data-scope', 'all');
+  await expect(page.getByText(`共 ${REMOTE_ONLY_ALL_COMMITS} 个提交`)).toBeVisible();
+  await expect(page.getByTestId('commit-row').filter({ hasText: REMOTE_ONLY_SUBJECT })).toHaveCount(1);
+
+  // 布局不被「多一列」破坏（E-07 同源闸门）
+  const metrics = await page.evaluate(() => ({
+    docScrollHeight: document.documentElement.scrollHeight,
+    docClientHeight: document.documentElement.clientHeight,
+  }));
+  expect(metrics.docScrollHeight).toBeLessThanOrEqual(metrics.docClientHeight + 1);
+});
+
+/**
+ * E-21 排序切换（P13 排序契约）。
+ *
+ * 回归的是实测差异：SourceGit 默认按提交时间排，`b8a099f8`（1.0.1 尖端）会被夹在 master 的
+ * 更晚提交之间、两条泳道平行贯穿；我们此前固定拓扑序，把整条分支扎堆挪走，看起来「完全不一样」。
+ *
+ * ① 缺省 `data-order="date"`：两分支的提交按时间**交错**；
+ * ② 切「按拓扑」：同分支提交**扎堆**；
+ * ③ 切回「按时间」：复现（证明不是只加载一次蒙对的）。
+ */
+test('E-21 排序切换：缺省按时间交错，可切按拓扑扎堆', async ({ page }) => {
+  const orderRepoPath = realpathSync(readFileSync(join(here, ORDER_REPO_POINT), 'utf8').trim());
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开仓库' }).first().click();
+  const openDialog = page.locator('.n-modal').filter({ hasText: '打开仓库' });
+  await expect(openDialog).toBeVisible();
+  await openDialog.getByPlaceholder('/Users/me/projects/my-repo').fill(orderRepoPath);
+  await openDialog.getByRole('button', { name: '打开', exact: true }).click();
+  await expect(openDialog).toBeHidden();
+  await waitForNoOverlay(page);
+
+  await expect(page.getByText('共 6 个提交')).toBeVisible();
+  await expect(page.getByTestId('commit-list')).toHaveAttribute('data-lane-count', '2');
+
+  /** 把每行文本映射回夹具里已知的 subject（行内还含 hash / 作者 / 时间） */
+  const subjects = async (): Promise<string[]> => {
+    const texts = await page
+      .getByTestId('commit-row')
+      .evaluateAll((els) => els.map((el) => (el.textContent || '').replace(/\s+/g, ' ').trim()));
+    const known = [...ORDER_DATE_SUBJECTS];
+    return texts.map((text) => known.find((subject) => text.includes(subject)) ?? text);
+  };
+
+  // ① 缺省按时间：两条分支交错
+  const toggle = page.getByTestId('log-order-toggle');
+  await expect(toggle).toHaveAttribute('data-order', 'date');
+  // 列表是异步重查的：用 poll 等到顺序真正变化，避免读到切换前的旧行
+  await expect.poll(subjects).toEqual(ORDER_DATE_SUBJECTS);
+
+  // ② 切「按拓扑」：同分支扎堆
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('data-order', 'topo');
+  await expect.poll(subjects).toEqual(ORDER_TOPO_SUBJECTS);
+  // 两种顺序都不影响提交总数
+  await expect(page.getByText('共 6 个提交')).toBeVisible();
+
+  // ③ 切回「按时间」：复现
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('data-order', 'date');
+  await expect.poll(subjects).toEqual(ORDER_DATE_SUBJECTS);
+
+  // 布局不被多一列/顺序切换破坏（E-07 同源闸门）
+  const metrics = await page.evaluate(() => ({
+    docScrollHeight: document.documentElement.scrollHeight,
+    docClientHeight: document.documentElement.clientHeight,
+  }));
+  expect(metrics.docScrollHeight).toBeLessThanOrEqual(metrics.docClientHeight + 1);
 });

@@ -254,4 +254,40 @@ describe('repos store', () => {
     expect(store.filter(REPO).author).toBe('tester');
     expect(mocks.log).toHaveBeenCalledWith(REPO, expect.objectContaining({ author: 'tester', q: 'fix' }));
   });
+
+  it('引用范围缺省为全引用，切「当前分支」后 all=false，且翻页沿用当前范围', async () => {
+    mocks.log.mockResolvedValue({ total: 300, commits: [{ id: 'a', shortId: 'a', parents: [], author: '', email: '', time: '', subject: '', refs: [] }] });
+    const store = useReposStore();
+
+    expect(store.filter(REPO).all).toBe(true);
+
+    await store.applyFilter(REPO, {});
+    expect(mocks.log).toHaveBeenLastCalledWith(REPO, expect.objectContaining({ all: true }));
+
+    await store.applyFilter(REPO, { all: false });
+    expect(store.filter(REPO).all).toBe(false);
+    expect(mocks.log).toHaveBeenLastCalledWith(REPO, expect.objectContaining({ all: false }));
+
+    mocks.log.mockClear();
+    await store.loadLogMore(REPO);
+    expect(mocks.log).toHaveBeenLastCalledWith(REPO, expect.objectContaining({ all: false, skip: 1 }));
+  });
+
+  it('排序缺省为按时间，切「按拓扑」后 order=topo，且翻页沿用', async () => {
+    mocks.log.mockResolvedValue({ total: 300, commits: [{ id: 'a', shortId: 'a', parents: [], author: '', email: '', time: '', subject: '', refs: [] }] });
+    const store = useReposStore();
+
+    expect(store.filter(REPO).order).toBe('date');
+
+    await store.applyFilter(REPO, {});
+    expect(mocks.log).toHaveBeenLastCalledWith(REPO, expect.objectContaining({ order: 'date' }));
+
+    await store.applyFilter(REPO, { order: 'topo' });
+    expect(store.filter(REPO).order).toBe('topo');
+    expect(mocks.log).toHaveBeenLastCalledWith(REPO, expect.objectContaining({ order: 'topo' }));
+
+    mocks.log.mockClear();
+    await store.loadLogMore(REPO);
+    expect(mocks.log).toHaveBeenLastCalledWith(REPO, expect.objectContaining({ order: 'topo', skip: 1 }));
+  });
 });

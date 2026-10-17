@@ -27,6 +27,20 @@ describe('operations store', () => {
     expect(store.running['op-1']).toBeUndefined();
   });
 
+  it('done 早于 begin（极快的写操作）不会留下永远「执行中」', () => {
+    const store = useOperationsStore();
+    // 服务端在 POST 响应回来之前就推了 done
+    store.finish('op-fast');
+    expect(store.isRepoBusy(REPO_A)).toBe(false);
+
+    // 前端随后才 begin：必须直接忽略，而不是把它挂成进行中
+    store.begin('op-fast', REPO_A, 'push');
+
+    expect(store.isRepoBusy(REPO_A)).toBe(false);
+    expect(store.running['op-fast']).toBeUndefined();
+    expect(store.finishedEarly).toHaveLength(0);
+  });
+
   it('写操作互斥：同仓库有操作进行中时不能再发起写操作', () => {
     const store = useOperationsStore();
     store.begin('op-1', REPO_A, 'fetch');

@@ -47,6 +47,71 @@ export const CHECKOUT_CONFLICT_REPO_POINT = '.repo-path-checkout-conflict';
  */
 export const PUSH_REPO_POINT = '.repo-path-push';
 /**
+ * E-19：泳道图夹具点文件。
+ *
+ * 结构（feature 从 main 尖端分出后 `--no-ff` 合回）：
+ * ```
+ * merge-base → main-1 → main-2 ─┐
+ *                    └─ feature-1 → feature-2 ─┘ → merge-feature
+ * ```
+ * 打开即可看到 **2 列** 泳道：merge 行两条出边（首父继承本列 + 第二父开新列）。
+ */
+export const MERGE_REPO_POINT = '.repo-path-merge';
+/** E-19：merge 提交的 subject（该行应有两个 parent） */
+export const MERGE_SUBJECT = 'merge-feature';
+/** E-19：合并进来的分支链上的提交 subject 前缀 */
+export const MERGE_FEATURE_SUBJECT = 'feature-';
+/** E-19：主链上的提交 subject 前缀 */
+export const MERGE_MAIN_SUBJECT = 'main-';
+/** E-19：feature 分支上的提交数 */
+export const MERGE_FEATURE_COMMITS = 2;
+/** E-19：main 分支上的提交数 */
+export const MERGE_MAIN_COMMITS = 2;
+/**
+ * E-20：引用范围夹具点文件。
+ *
+ * `main` 已 `push -u`，另有从 main 尖端分出并 push 的 `extra` 分支，本地随后**删掉**该分支 ——
+ * 于是 `remote-only-1` 只被 `refs/remotes/origin/extra` 指向，当前分支（main）不可达。
+ * 缺省「全部引用」应能看到它，切「当前分支」后消失。
+ */
+export const REMOTE_ONLY_REPO_POINT = '.repo-path-remote-only';
+/** E-20：只被远程分支指向的提交 subject（该行应带 `origin/extra` 徽标） */
+export const REMOTE_ONLY_SUBJECT = 'remote-only-1';
+/** E-20：`main` 上在 extra 分叉之后新增的提交 subject（与上面那条互为兄弟 → 2 列泳道） */
+export const REMOTE_ONLY_MAIN_SUBJECT = 'remote-only-main-2';
+/** E-20：承载该提交的远程分支短名 */
+export const REMOTE_ONLY_BRANCH = 'extra';
+/** E-20：全引用下的提交总数（2 条 main + 1 条只被 origin/extra 指向） */
+export const REMOTE_ONLY_ALL_COMMITS = 3;
+/** E-20：只看当前分支时的提交数（main 的 2 条） */
+export const REMOTE_ONLY_BRANCH_COMMITS = 2;
+/**
+ * E-21：排序夹具点文件。
+ *
+ * `main` 与 `feature` 各 3 条提交、提交时间**交错**，没有 merge —— 于是两种排序的输出完全不同：
+ * - `date`：`main-3, feat-2, main-2, feat-1, main-1, base`（两条分支的线平行贯穿）
+ * - `topo`：`main-3, main-2, main-1, feat-2, feat-1, base`（同分支扎堆）
+ */
+export const ORDER_REPO_POINT = '.repo-path-order';
+/** E-21：按时间（缺省）顺序下的 subject 序列 */
+export const ORDER_DATE_SUBJECTS = [
+  'order-main-3',
+  'order-feat-2',
+  'order-main-2',
+  'order-feat-1',
+  'order-main-1',
+  'order-base',
+];
+/** E-21：按拓扑顺序下的 subject 序列 */
+export const ORDER_TOPO_SUBJECTS = [
+  'order-main-3',
+  'order-main-2',
+  'order-main-1',
+  'order-feat-2',
+  'order-feat-1',
+  'order-base',
+];
+/**
  * E-16：主仓库上故意造的「切过去会覆盖本地改动」的分支名。
  *
  * 它指向 `HEAD~5`，而 README.md 在工作区有未提交改动 —— 双击它必然被拒绝。
@@ -67,12 +132,16 @@ export default async function globalSetup(): Promise<void> {
   const repo = join(base, 'e2e-repo');
   const origin = join(base, 'origin.git');
 
-  const git = (args: string[], cwd?: string): void => {
-    if (cwd) {
-      execFileSync('git', args, { cwd });
-    } else {
-      execFileSync('git', args);
-    }
+  const git = (args: string[], cwd?: string, env?: NodeJS.ProcessEnv): void => {
+    const options = env ? { cwd, env: { ...process.env, ...env } } : cwd ? { cwd } : {};
+    execFileSync('git', args, options);
+  };
+
+  /** 固定提交时间的提交（E-21 需要交错的时间戳，否则两种排序输出相同） */
+  const commitAt = (cwd: string, when: string, message: string, file: string, line: string): void => {
+    appendFileSync(join(cwd, file), `${line}\n`);
+    git(['add', '.'], cwd);
+    git(['commit', '-qm', message], cwd, { GIT_AUTHOR_DATE: when, GIT_COMMITTER_DATE: when });
   };
 
   git(['-c', 'init.defaultBranch=main', 'init', '-q', repo]);
@@ -218,6 +287,72 @@ export default async function globalSetup(): Promise<void> {
     git(['commit', '-qm', `push-local-${i}`], pushRepo);
   }
   writeFileSync(join(here, PUSH_REPO_POINT), pushRepo, 'utf8');
+
+  // E-19 前置：`feature` 从 main 尖端分出后 `--no-ff` 合回 → 提交图出现 2 列。
+  //   两侧改的是不同文件，merge 不会冲突。
+  const mergeRepo = join(base, 'merge-repo');
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', mergeRepo]);
+  git(['config', 'user.email', 'e2e@synclavis.local'], mergeRepo);
+  git(['config', 'user.name', 'e2e'], mergeRepo);
+  writeFileSync(join(mergeRepo, 'README.md'), '# merge repo\n');
+  git(['add', '.'], mergeRepo);
+  git(['commit', '-qm', 'merge-base'], mergeRepo);
+  for (let i = 1; i <= MERGE_MAIN_COMMITS; i += 1) {
+    appendFileSync(join(mergeRepo, 'main.txt'), `main line ${i}\n`);
+    git(['add', '.'], mergeRepo);
+    git(['commit', '-qm', `${MERGE_MAIN_SUBJECT}${i}`], mergeRepo);
+  }
+  git(['checkout', '-q', '-b', 'feature'], mergeRepo);
+  for (let i = 1; i <= MERGE_FEATURE_COMMITS; i += 1) {
+    appendFileSync(join(mergeRepo, 'feature.txt'), `feature line ${i}\n`);
+    git(['add', '.'], mergeRepo);
+    git(['commit', '-qm', `${MERGE_FEATURE_SUBJECT}${i}`], mergeRepo);
+  }
+  git(['checkout', '-q', 'main'], mergeRepo);
+  git(['merge', '--no-ff', '-q', '-m', MERGE_SUBJECT, 'feature'], mergeRepo);
+  writeFileSync(join(here, MERGE_REPO_POINT), mergeRepo, 'utf8');
+
+  // E-20 前置：`extra` 从 main 尖端分出 1 条提交 → push 到远程 → 删掉本地分支。
+  //   → `remote-only-1` 只剩 refs/remotes/origin/extra 可达，缺省「全部引用」才看得到。
+  const remoteOnlyRepo = join(base, 'remote-only-repo');
+  const remoteOnlyBare = join(base, 'remote-only-remote.git');
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', remoteOnlyRepo]);
+  git(['config', 'user.email', 'e2e@synclavis.local'], remoteOnlyRepo);
+  git(['config', 'user.name', 'e2e'], remoteOnlyRepo);
+  writeFileSync(join(remoteOnlyRepo, 'README.md'), '# remote only repo\n');
+  git(['add', '.'], remoteOnlyRepo);
+  git(['commit', '-qm', 'remote-only-base'], remoteOnlyRepo);
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', '--bare', remoteOnlyBare]);
+  git(['remote', 'add', 'origin', remoteOnlyBare], remoteOnlyRepo);
+  git(['push', '-q', '-u', 'origin', 'main'], remoteOnlyRepo);
+  git(['checkout', '-q', '-b', REMOTE_ONLY_BRANCH], remoteOnlyRepo);
+  appendFileSync(join(remoteOnlyRepo, 'extra.txt'), 'remote only line\n');
+  git(['add', '.'], remoteOnlyRepo);
+  git(['commit', '-qm', REMOTE_ONLY_SUBJECT], remoteOnlyRepo);
+  git(['push', '-q', 'origin', REMOTE_ONLY_BRANCH], remoteOnlyRepo);
+  // main 随后继续前进：两个尖端互为兄弟 → 全引用下泳道是 2 列（否则就是一条直线）
+  git(['checkout', '-q', 'main'], remoteOnlyRepo);
+  appendFileSync(join(remoteOnlyRepo, 'README.md'), 'main moved on\n');
+  git(['add', '.'], remoteOnlyRepo);
+  git(['commit', '-qm', 'remote-only-main-2'], remoteOnlyRepo);
+  git(['push', '-q', 'origin', 'main'], remoteOnlyRepo);
+  git(['branch', '-q', '-D', REMOTE_ONLY_BRANCH], remoteOnlyRepo);
+  writeFileSync(join(here, REMOTE_ONLY_REPO_POINT), remoteOnlyRepo, 'utf8');
+
+  // E-21 前置：main / feature 各 3 条、时间戳交错、无 merge —— date 与 topo 的输出完全不同。
+  const orderRepo = join(base, 'order-repo');
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', orderRepo]);
+  git(['config', 'user.email', 'e2e@synclavis.local'], orderRepo);
+  git(['config', 'user.name', 'e2e'], orderRepo);
+  commitAt(orderRepo, '2026-02-01T10:00:00+0800', 'order-base', 'base.txt', 'base');
+  git(['checkout', '-q', '-b', 'feature'], orderRepo);
+  commitAt(orderRepo, '2026-02-03T10:00:00+0800', 'order-feat-1', 'feat.txt', 'f1');
+  commitAt(orderRepo, '2026-02-05T10:00:00+0800', 'order-feat-2', 'feat.txt', 'f2');
+  git(['checkout', '-q', 'main'], orderRepo);
+  commitAt(orderRepo, '2026-02-02T10:00:00+0800', 'order-main-1', 'main.txt', 'm1');
+  commitAt(orderRepo, '2026-02-04T10:00:00+0800', 'order-main-2', 'main.txt', 'm2');
+  commitAt(orderRepo, '2026-02-06T10:00:00+0800', 'order-main-3', 'main.txt', 'm3');
+  writeFileSync(join(here, ORDER_REPO_POINT), orderRepo, 'utf8');
 
   // 记录运行前的主题，交给 global-teardown 还原：
   // E-03 会切换主题并持久化到后端，不还原的话每跑一次 E2E 都会翻转用户的主题偏好。
