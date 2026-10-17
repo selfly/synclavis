@@ -8,6 +8,7 @@ import {
   STAGED_PATCH_LINE,
   TRACKED_FILE,
   UNTRACKED_CONTENT,
+  UNTRACKED_DIR,
   UNTRACKED_FILE,
   WORKING_PATCH_LINE,
 } from './global-setup';
@@ -363,6 +364,9 @@ test('E-10 暂存区文件可点击查看差异，暂存后差异跟着切换', 
   // 选中态用 data-selected 暴露，避免与行上的 hover:bg-bg-hover 混淆
   const selectedRows = panel.locator('li[data-selected="true"]');
 
+  // 默认停在「变更」tab（已暂存/未暂存同屏）
+  await expect(page.getByTestId('commit-tab-changes')).toHaveAttribute('aria-selected', 'true');
+
   // 1) 已暂存文件：HEAD ↔ 索引
   await panel.locator('li', { hasText: TRACKED_FILE }).first().click();
   await expect(header).toContainText('已暂存');
@@ -378,14 +382,17 @@ test('E-10 暂存区文件可点击查看差异，暂存后差异跟着切换', 
   await expect(patch).toContainText(WORKING_PATCH_LINE);
   await expect(patch).not.toContainText(STAGED_PATCH_LINE);
 
-  // 3) 未跟踪文件：按 ADD 呈现，patch 含文件内容
+  // 3) 未跟踪文件在单独的「未跟踪」tab：按 ADD 呈现，patch 含文件内容
+  await page.getByTestId('commit-tab-untracked').click();
   await panel.locator('li', { hasText: UNTRACKED_FILE }).first().click();
   await expect(header).toContainText('未暂存');
   await expect(header).toContainText(UNTRACKED_FILE);
   await expect(header).toContainText('ADD');
   await expect(patch).toContainText(UNTRACKED_CONTENT);
 
-  // 4) 点 README.md 行上的「+」：click.stop 保证不改变当前查看的文件（仍是 notes.txt）
+  // 4) 回「变更」tab，点 README.md 行上的「+」：
+  //    click.stop 保证不改变当前查看的文件（仍是 notes.txt）
+  await page.getByTestId('commit-tab-changes').click();
   const unstagedReadme = panel.locator('li', { hasText: 'README.md' }).first();
   await unstagedReadme.hover();
   await unstagedReadme.locator('button[title="暂存"]').click();
@@ -466,4 +473,69 @@ test('E-11 暂存区文件列表宽度可拖拽并持久化', async ({ page }) =
   // 5) 用 API 直接写回默认值复原（避免差值拖拽在上限附近被钳住而留下残留）
   await resetBaseline();
   expect(await width()).toBe(DEFAULT_LAYOUT.commitFileListWidth);
+});
+
+/**
+ * E-12：暂存区树形展示；暂存/取消暂存整个文件夹 = 其下所有文件。
+ *
+ * 覆盖：默认扁平、「未跟踪」独立 tab、切树形后的目录节点与计数、整目录暂存/取消暂存、
+ * 以及展示偏好的 localStorage 持久化。
+ */
+test('E-12 暂存区树形展示与整目录暂存', async ({ page }) => {
+  await ensureRepoOpen(page);
+
+  const panel = page.getByTestId('commit-panel');
+  const toggle = page.getByTestId('commit-file-view-toggle');
+
+  // 基线：清掉偏好并刷新，确认默认是扁平列表
+  await page.evaluate(() => localStorage.removeItem('synclavis.commitFileView'));
+  await page.reload();
+  await expect(panel).toBeVisible();
+
+  // 「未跟踪」是独立 tab：扁平模式下逐文件一行，没有目录节点
+  await page.getByTestId('commit-tab-untracked').click();
+  const untrackedList = page.getByTestId('commit-file-list-untracked');
+  await expect(untrackedList).toHaveAttribute('data-section', 'untracked');
+  await expect(untrackedList.locator('li[data-node-type="dir"]')).toHaveCount(0);
+  await expect(untrackedList.locator(`li[data-path="${UNTRACKED_DIR}/deep/two.txt"]`)).toBeVisible();
+
+  // 切树形：nest 目录节点出现，计数为 2（one.txt + deep/two.txt）
+  await toggle.click();
+  const nestDir = untrackedList.locator(`li[data-path="${UNTRACKED_DIR}"]`);
+  await expect(nestDir).toBeVisible();
+  await expect(nestDir).toContainText('2');
+  await expect(untrackedList.locator(`li[data-path="${UNTRACKED_DIR}/deep"]`)).toBeVisible();
+
+  // 整目录暂存：nest 下所有文件离开「未跟踪」
+  await nestDir.hover();
+  await nestDir.locator('button[title="暂存整个目录"]').click();
+  await expect
+    .poll(async () => untrackedList.locator(`li[data-path^="${UNTRACKED_DIR}/"]`).count())
+    .toBe(0);
+
+  // 「变更」tab 的已暂存块出现 nest（树形，计数 2）
+  await page.getByTestId('commit-tab-changes').click();
+  const stagedList = page.getByTestId('commit-file-list-staged');
+  const stagedNest = stagedList.locator(`li[data-path="${UNTRACKED_DIR}"]`);
+  await expect(stagedNest).toBeVisible();
+  await expect(stagedNest).toContainText('2');
+
+  // 整目录取消暂存：全部退回「未跟踪」
+  await stagedNest.hover();
+  await stagedNest.locator('button[title="取消暂存整个目录"]').click();
+  await expect.poll(async () => stagedList.locator(`li[data-path="${UNTRACKED_DIR}"]`).count()).toBe(0);
+  await page.getByTestId('commit-tab-untracked').click();
+  await expect(untrackedList.locator(`li[data-path="${UNTRACKED_DIR}"]`)).toBeVisible();
+
+  // 偏好持久化：刷新后仍是树形
+  await page.reload();
+  await expect(panel).toBeVisible();
+  await page.getByTestId('commit-tab-untracked').click();
+  await expect(
+    page.getByTestId('commit-file-list-untracked').locator(`li[data-path="${UNTRACKED_DIR}"]`),
+  ).toBeVisible();
+
+  // 复原为列表，避免影响其它用例
+  await toggle.click();
+  await expect(page.getByTestId('commit-file-list-untracked').locator('li[data-node-type="dir"]')).toHaveCount(0);
 });

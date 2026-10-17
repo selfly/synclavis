@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +16,9 @@ export const STAGED_PATCH_LINE = 'staged change line';
 export const WORKING_PATCH_LINE = 'working change line';
 export const UNTRACKED_FILE = 'notes.txt';
 export const UNTRACKED_CONTENT = 'untracked file content';
+/** 未跟踪的嵌套目录：用于验证树形展示与「整目录暂存 = 其下所有文件」 */
+export const UNTRACKED_DIR = 'nest';
+export const UNTRACKED_DIR_CONTENT = 'nested untracked file';
 
 /**
  * 创建 E2E 用的临时仓库，并把路径写入 .repo-path。
@@ -69,6 +72,10 @@ export default async function globalSetup(): Promise<void> {
   git(['add', TRACKED_FILE], repo);
   appendFileSync(join(repo, 'README.md'), `${WORKING_PATCH_LINE}\n`);
   writeFileSync(join(repo, UNTRACKED_FILE), `${UNTRACKED_CONTENT}\n`);
+  //   未跟踪目录：nest/{one.txt, deep/two.txt}（E-12 树形与整目录暂存的前置）
+  mkdirSync(join(repo, UNTRACKED_DIR, 'deep'), { recursive: true });
+  writeFileSync(join(repo, UNTRACKED_DIR, 'one.txt'), `${UNTRACKED_DIR_CONTENT} one\n`);
+  writeFileSync(join(repo, UNTRACKED_DIR, 'deep', 'two.txt'), `${UNTRACKED_DIR_CONTENT} two\n`);
 
   writeFileSync(join(here, '.repo-path'), repo, 'utf8');
 

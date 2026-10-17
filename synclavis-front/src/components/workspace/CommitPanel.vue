@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import { NButton, NInput } from 'naive-ui';
-import { useMessage } from 'naive-ui';
-import { Minus, Plus } from 'lucide-vue-next';
+import { computed, ref, watch } from 'vue';
+import { NButton, NInput, useMessage } from 'naive-ui';
+import { FolderTree, List } from 'lucide-vue-next';
 import ResizeHandle from '@/components/common/ResizeHandle.vue';
+import WorktreeFileList from './WorktreeFileList.vue';
 import { useReposStore } from '@/stores/repos';
+import {
+  readFileView,
+  writeFileView,
+  type FileViewMode,
+  type WorktreeFileItem,
+} from '@/utils/fileTree';
 import { LAYOUT_BOUNDS } from '@/utils/layout';
 
 const props = defineProps<{
@@ -27,19 +33,55 @@ const message = useMessage();
 const text = ref('');
 const submitting = ref(false);
 
+type TabId = 'changes' | 'untracked';
+
+const view = ref<FileViewMode>(readFileView());
+const tab = ref<TabId>('changes');
+/** 用户是否手动选过 tab：选过之后不再自动跳到「第一个非空」 */
+const tabChosen = ref(false);
+
 const detail = computed(() => repos.detail(props.repoId));
-const staged = computed(() => detail.value.status?.staged ?? []);
-const unstaged = computed(() => detail.value.status?.unstaged ?? []);
-const untracked = computed(() => detail.value.status?.untracked ?? []);
 const selectedFile = computed(() => repos.worktreeFile(props.repoId));
 
+const staged = computed<WorktreeFileItem[]>(() =>
+  (detail.value.status?.staged ?? []).map((file) => ({ path: file.path, changeType: file.changeType })),
+);
+const unstaged = computed<WorktreeFileItem[]>(() =>
+  (detail.value.status?.unstaged ?? []).map((file) => ({ path: file.path, changeType: file.changeType })),
+);
+const untracked = computed<WorktreeFileItem[]>(() =>
+  (detail.value.status?.untracked ?? []).map((path) => ({ path, changeType: 'ADD' })),
+);
+const conflicts = computed(() => detail.value.status?.conflicts ?? []);
+const changesCount = computed(() => staged.value.length + unstaged.value.length);
+
 /**
- * 同一路径可能同时出现在「已暂存」和「未暂存」（部分暂存），
- * 因此高亮必须连分区一起比，否则两个分区会同时亮。
+ * 默认 tab：变更优先；变更两区都空、未跟踪非空才默认到「未跟踪」。
+ *
+ * <p>只在状态首次到达时决定一次，之后不再自动切换——否则用户刚在「未跟踪」暂存一个文件、
+ * 变更变非空时，视图会被强行拽回「变更」。</p>
  */
-function isSelected(path: string, stagedFile: boolean): boolean {
-  const current = selectedFile.value;
-  return current !== null && current.path === path && current.staged === stagedFile;
+watch(
+  () => detail.value.status,
+  (status) => {
+    if (tabChosen.value || !status) {
+      return;
+    }
+    const changes = status.staged.length + status.unstaged.length;
+    tab.value = changes === 0 && status.untracked.length > 0 ? 'untracked' : 'changes';
+    tabChosen.value = true;
+  },
+  { immediate: true },
+);
+
+function pickTab(next: TabId): void {
+  tab.value = next;
+  tabChosen.value = true;
+}
+
+function toggleView(): void {
+  view.value = view.value === 'tree' ? 'list' : 'tree';
+  writeFileView(view.value);
 }
 
 /** 点击文件 → 在右侧查看它改了哪些内容（见《详细设计文档》§6.2） */
@@ -87,85 +129,151 @@ async function submit(amend: boolean): Promise<void> {
     data-testid="commit-panel"
     :style="{ height: `${height}px` }"
   >
-    <div class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1 text-xxs text-text-dim">
-      <span>已暂存 {{ staged.length }}</span>
-      <span>· 未暂存 {{ unstaged.length + untracked.length }}</span>
-      <span v-if="detail.status?.conflicts.length" class="text-warn">
-        · 冲突 {{ detail.status.conflicts.length }}
-      </span>
+    <div
+      v-if="conflicts.length"
+      class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1 text-xxs text-warn"
+    >
+      <span>冲突 {{ conflicts.length }}</span>
     </div>
 
     <div class="flex min-h-0 flex-1">
       <!-- 宽度由 layout.commitFileListWidth 驱动，右边界可拖拽 -->
-      <ul
-        class="shrink-0 overflow-y-auto"
+      <div
+        class="flex shrink-0 flex-col overflow-hidden"
         data-testid="commit-file-list"
         :style="{ width: `${fileListWidth}px` }"
       >
-        <li
-          v-for="file in staged"
-          :key="`s-${file.path}`"
-          class="group flex cursor-pointer items-center gap-1 px-2 py-0.5 text-xs hover:bg-bg-hover"
-          :class="isSelected(file.path, true) ? 'bg-bg-hover' : ''"
-          :data-selected="isSelected(file.path, true)"
-          :title="`点击查看差异：${file.path}`"
-          @click="inspect(file.path, true)"
-        >
-          <span class="truncate text-success">{{ file.path }}</span>
+        <!-- 分区 tab：已暂存/未暂存同处「变更」，未跟踪单独一栏 -->
+        <div class="flex shrink-0 items-center border-b border-border px-1" role="tablist">
           <button
             type="button"
-            class="ml-auto shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-bg"
-            title="取消暂存"
-            @click.stop="doUnstage([file.path])"
+            role="tab"
+            class="-mb-px border-b px-2 py-1 text-xxs"
+            :class="
+              tab === 'changes'
+                ? 'border-accent text-text'
+                : 'border-transparent text-text-dim hover:text-text'
+            "
+            :aria-selected="tab === 'changes'"
+            data-testid="commit-tab-changes"
+            @click="pickTab('changes')"
           >
-            <Minus :size="11" />
+            变更 {{ changesCount }}
           </button>
-        </li>
-        <li
-          v-for="file in unstaged"
-          :key="`u-${file.path}`"
-          class="group flex cursor-pointer items-center gap-1 px-2 py-0.5 text-xs hover:bg-bg-hover"
-          :class="isSelected(file.path, false) ? 'bg-bg-hover' : ''"
-          :data-selected="isSelected(file.path, false)"
-          :title="`点击查看差异：${file.path}`"
-          @click="inspect(file.path, false)"
-        >
-          <span class="truncate text-text-dim">{{ file.path }}</span>
           <button
             type="button"
-            class="ml-auto shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-bg"
-            title="暂存"
-            @click.stop="doStage([file.path])"
+            role="tab"
+            class="-mb-px border-b px-2 py-1 text-xxs"
+            :class="
+              tab === 'untracked'
+                ? 'border-accent text-text'
+                : 'border-transparent text-text-dim hover:text-text'
+            "
+            :aria-selected="tab === 'untracked'"
+            data-testid="commit-tab-untracked"
+            @click="pickTab('untracked')"
           >
-            <Plus :size="11" />
+            未跟踪 {{ untracked.length }}
           </button>
-        </li>
-        <li
-          v-for="path in untracked"
-          :key="`n-${path}`"
-          class="group flex cursor-pointer items-center gap-1 px-2 py-0.5 text-xs hover:bg-bg-hover"
-          :class="isSelected(path, false) ? 'bg-bg-hover' : ''"
-          :data-selected="isSelected(path, false)"
-          :title="`点击查看差异：${path}`"
-          @click="inspect(path, false)"
-        >
-          <span class="truncate text-warn">{{ path }}</span>
           <button
             type="button"
-            class="ml-auto shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-bg"
-            title="暂存"
-            @click.stop="doStage([path])"
+            class="ml-auto mr-1 shrink-0 rounded p-0.5 text-text-dim hover:bg-bg-hover hover:text-text"
+            :title="view === 'tree' ? '切换为列表' : '切换为树形'"
+            data-testid="commit-file-view-toggle"
+            @click="toggleView"
           >
-            <Plus :size="11" />
+            <List v-if="view === 'tree'" :size="12" />
+            <FolderTree v-else :size="12" />
           </button>
-        </li>
-        <li
-          v-if="staged.length + unstaged.length + untracked.length === 0"
-          class="px-2 py-1 text-xs text-text-dim"
-        >
-          工作区干净
-        </li>
-      </ul>
+        </div>
+
+        <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <template v-if="tab === 'changes'">
+            <template v-if="staged.length">
+              <div
+                class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-0.5 text-xxs text-text-dim"
+              >
+                <span>已暂存 · {{ staged.length }}</span>
+                <button
+                  type="button"
+                  class="ml-auto rounded px-1 hover:bg-bg-hover hover:text-text"
+                  title="全部取消暂存"
+                  data-testid="commit-block-unstage-all"
+                  @click="doUnstage(staged.map((file) => file.path))"
+                >
+                  全部取消暂存
+                </button>
+              </div>
+              <WorktreeFileList
+                section="staged"
+                :files="staged"
+                :view="view"
+                :selected="selectedFile"
+                @inspect="inspect"
+                @unstage="doUnstage"
+              />
+            </template>
+
+            <template v-if="unstaged.length">
+              <div
+                class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-0.5 text-xxs text-text-dim"
+              >
+                <span>未暂存 · {{ unstaged.length }}</span>
+                <button
+                  type="button"
+                  class="ml-auto rounded px-1 hover:bg-bg-hover hover:text-text"
+                  title="全部暂存"
+                  data-testid="commit-block-stage-all"
+                  @click="doStage(unstaged.map((file) => file.path))"
+                >
+                  全部暂存
+                </button>
+              </div>
+              <WorktreeFileList
+                section="unstaged"
+                :files="unstaged"
+                :view="view"
+                :selected="selectedFile"
+                @inspect="inspect"
+                @stage="doStage"
+              />
+            </template>
+
+            <div
+              v-if="changesCount === 0"
+              class="px-2 py-1 text-xs text-text-dim"
+              data-testid="commit-changes-empty"
+            >
+              {{ untracked.length ? '无变更（未跟踪文件见「未跟踪」）' : '工作区干净' }}
+            </div>
+          </template>
+
+          <template v-else>
+            <div
+              class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-0.5 text-xxs text-text-dim"
+            >
+              <span>未跟踪 · {{ untracked.length }}</span>
+              <button
+                type="button"
+                class="ml-auto rounded px-1 hover:bg-bg-hover hover:text-text"
+                title="全部暂存"
+                data-testid="commit-untracked-stage-all"
+                @click="doStage(untracked.map((file) => file.path))"
+              >
+                全部暂存
+              </button>
+            </div>
+            <WorktreeFileList
+              section="untracked"
+              :files="untracked"
+              :view="view"
+              :selected="selectedFile"
+              @inspect="inspect"
+              @stage="doStage"
+            />
+          </template>
+        </div>
+      </div>
 
       <ResizeHandle
         axis="x"
