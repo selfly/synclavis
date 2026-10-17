@@ -19,6 +19,7 @@ const remoteBranches = computed(() => detail.value.branches.filter((b) => !b.loc
 <template>
   <aside
     class="flex shrink-0 flex-col overflow-y-auto border-r border-border bg-bg-elev"
+    data-testid="repo-sidebar"
     :style="{ width: `${width}px` }"
   >
     <section class="border-b border-border px-2 py-2">

@@ -13,6 +13,8 @@ export interface LayoutSettings {
   logPanelHeight: number;
   /** 左侧边栏宽度 */
   sidebarWidth: number;
+  /** 中间提交列表列宽 */
+  commitListWidth: number;
 }
 
 export type LayoutKey = keyof LayoutSettings;
@@ -21,13 +23,23 @@ export const DEFAULT_LAYOUT: LayoutSettings = {
   commitPanelHeight: 190,
   logPanelHeight: 150,
   sidebarWidth: 240,
+  commitListWidth: 380,
 };
 
 export const LAYOUT_BOUNDS: Record<LayoutKey, { min: number; max: number }> = {
   commitPanelHeight: { min: 120, max: 600 },
   logPanelHeight: { min: 80, max: 480 },
-  sidebarWidth: { min: 180, max: 420 },
+  sidebarWidth: { min: 120, max: 420 },
+  commitListWidth: { min: 240, max: 720 },
 };
+
+/**
+ * 左/中两栏拖拽时为右侧 Diff 区保留的最小宽度。
+ *
+ * 两栏的动态上限都用它参与计算，否则窄窗口下可以把 Diff 区压成 0
+ * （右列是 `min-w-0 flex-1`，再被 AppShell 的 overflow-hidden 裁掉）。
+ */
+export const RIGHT_COLUMN_MIN_WIDTH = 260;
 
 const LAYOUT_CACHE_KEY = 'synclavis.layout';
 
@@ -70,6 +82,10 @@ export function resolveLayout(candidate?: Partial<LayoutSettings> | null): Layou
       candidate?.logPanelHeight ?? DEFAULT_LAYOUT.logPanelHeight,
     ),
     sidebarWidth: clampLayoutSize('sidebarWidth', candidate?.sidebarWidth ?? DEFAULT_LAYOUT.sidebarWidth),
+    commitListWidth: clampLayoutSize(
+      'commitListWidth',
+      candidate?.commitListWidth ?? DEFAULT_LAYOUT.commitListWidth,
+    ),
   };
 }
 

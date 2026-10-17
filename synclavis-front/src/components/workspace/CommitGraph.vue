@@ -5,7 +5,7 @@ import { Search } from 'lucide-vue-next';
 import { useReposStore } from '@/stores/repos';
 import { computeVirtualWindow } from '@/utils/virtual';
 
-const props = defineProps<{ repoId: string }>();
+const props = defineProps<{ repoId: string; width: number }>();
 
 /**
  * 提交行固定行高（像素）。
@@ -103,7 +103,11 @@ async function loadMore(): Promise<void> {
 </script>
 
 <template>
-  <section class="flex w-[380px] shrink-0 flex-col border-r border-border">
+  <section
+    class="flex shrink-0 flex-col border-r border-border"
+    data-testid="commit-column"
+    :style="{ width: `${width}px` }"
+  >
     <div class="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
       <n-input v-model:value="keyword" size="tiny" placeholder="搜索提交信息" @keyup.enter="apply" />
       <n-input v-model:value="author" size="tiny" placeholder="作者" class="w-[90px]" @keyup.enter="apply" />

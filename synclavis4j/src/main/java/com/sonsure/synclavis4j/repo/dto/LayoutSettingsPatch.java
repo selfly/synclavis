@@ -10,6 +10,7 @@ public class LayoutSettingsPatch {
     private Integer commitPanelHeight;
     private Integer logPanelHeight;
     private Integer sidebarWidth;
+    private Integer commitListWidth;
 
     public Integer getCommitPanelHeight() {
         return commitPanelHeight;
@@ -33,5 +34,13 @@ public class LayoutSettingsPatch {
 
     public void setSidebarWidth(Integer sidebarWidth) {
         this.sidebarWidth = sidebarWidth;
+    }
+
+    public Integer getCommitListWidth() {
+        return commitListWidth;
+    }
+
+    public void setCommitListWidth(Integer commitListWidth) {
+        this.commitListWidth = commitListWidth;
     }
 }

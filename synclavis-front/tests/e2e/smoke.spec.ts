@@ -48,7 +48,12 @@ async function layoutMetrics(page: Page) {
     );
     const panelRect = panel?.getBoundingClientRect() ?? null;
     const buttonRect = commitButton?.getBoundingClientRect() ?? null;
+    const sidebarRect = document.querySelector('[data-testid="repo-sidebar"]')?.getBoundingClientRect() ?? null;
+    const columnRect = document.querySelector('[data-testid="commit-column"]')?.getBoundingClientRect() ?? null;
     return {
+      sidebarWidth: sidebarRect ? Math.round(sidebarRect.width) : -1,
+      commitListWidth: columnRect ? Math.round(columnRect.width) : -1,
+      panelWidth: panelRect ? Math.round(panelRect.width) : -1,
       innerHeight: window.innerHeight,
       docScrollHeight: document.documentElement.scrollHeight,
       pageScrolls: document.documentElement.scrollHeight > window.innerHeight + 1,
@@ -83,7 +88,7 @@ async function waitForNoOverlay(page: Page): Promise<void> {
     .toBe(0);
 }
 
-async function dragHandle(page: Page, label: string, dy: number): Promise<void> {
+async function dragHandle(page: Page, label: string, dx: number, dy: number): Promise<void> {
   const handle = page.getByRole('separator', { name: label });
   await expect(handle).toBeVisible();
   await waitForNoOverlay(page);
@@ -107,7 +112,7 @@ async function dragHandle(page: Page, label: string, dy: number): Promise<void> 
 
   await page.mouse.move(x, y);
   await page.mouse.down();
-  await page.mouse.move(x, y + dy, { steps: 8 });
+  await page.mouse.move(x + dx, y + dy, { steps: 8 });
   await page.mouse.up();
 }
 
@@ -229,7 +234,7 @@ test('E-08 提交区拖拽调高并持久化到后端', async ({ page }) => {
   await ensureRepoOpen(page);
 
   const before = await layoutMetrics(page);
-  await dragHandle(page, '调整提交区高度', -80);
+  await dragHandle(page, '调整提交区高度', 0, -80);
   await expect
     .poll(async () => (await layoutMetrics(page)).panelHeight)
     .toBeGreaterThan(before.panelHeight + 60);
@@ -250,8 +255,53 @@ test('E-08 提交区拖拽调高并持久化到后端', async ({ page }) => {
   expect(Math.abs(reloaded.panelHeight - after.panelHeight)).toBeLessThanOrEqual(2);
 
   // 复原，避免影响后续用例
-  await dragHandle(page, '调整提交区高度', 80);
+  await dragHandle(page, '调整提交区高度', 0, 80);
   await expect
     .poll(async () => (await layoutMetrics(page)).panelHeight)
     .toBeLessThanOrEqual(before.panelHeight + 2);
+});
+
+/** E-09：提交列表列宽可拖拽并持久化；左侧栏最小宽度已降为 120px */
+test('E-09 提交列表列宽可拖拽、左侧栏最小宽度为 120px', async ({ page }) => {
+  await ensureRepoOpen(page);
+
+  const before = await layoutMetrics(page);
+  expect(before.commitListWidth).toBeGreaterThan(0);
+
+  // 1) 提交列表列宽：向右拖 100px → 变宽并持久化
+  await dragHandle(page, '调整提交列表宽度', 100, 0);
+  await expect
+    .poll(async () => (await layoutMetrics(page)).commitListWidth)
+    .toBeGreaterThan(before.commitListWidth + 80);
+
+  const widened = await layoutMetrics(page);
+  await expect
+    .poll(async () => (await backendLayout(page)).commitListWidth)
+    .toBeGreaterThanOrEqual(widened.commitListWidth - 2);
+  await expect
+    .poll(async () => (await backendLayout(page)).commitListWidth)
+    .toBeLessThanOrEqual(widened.commitListWidth + 2);
+
+  // 拖宽提交列表后，右侧 Diff/提交区必须还留有可用宽度（动态上限保护）
+  expect(widened.panelWidth).toBeGreaterThan(200);
+  expect(widened.pageScrolls).toBe(false);
+
+  await page.reload();
+  await expect(page.getByTestId('commit-panel')).toBeVisible();
+  expect(Math.abs((await layoutMetrics(page)).commitListWidth - widened.commitListWidth)).toBeLessThanOrEqual(2);
+
+  // 2) 左侧栏最小宽度：向左猛拖 → 钳在 120（回归：曾为 180）
+  await dragHandle(page, '调整左侧栏宽度', -600, 0);
+  await expect.poll(async () => (await layoutMetrics(page)).sidebarWidth).toBe(120);
+  await expect.poll(async () => (await backendLayout(page)).sidebarWidth).toBe(120);
+
+  // 3) 按差值精确复原，避免给后续用例/后续运行留下被改过的布局
+  await dragHandle(page, '调整提交列表宽度', before.commitListWidth - widened.commitListWidth, 0);
+  await expect
+    .poll(async () => (await layoutMetrics(page)).commitListWidth)
+    .toBeLessThanOrEqual(before.commitListWidth + 2);
+  await dragHandle(page, '调整左侧栏宽度', before.sidebarWidth - 120, 0);
+  await expect
+    .poll(async () => (await layoutMetrics(page)).sidebarWidth)
+    .toBeGreaterThanOrEqual(before.sidebarWidth - 2);
 });

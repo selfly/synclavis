@@ -47,6 +47,9 @@ public class SettingsService {
             if (layoutPatch.getSidebarWidth() != null) {
                 layout.setSidebarWidth(layoutPatch.getSidebarWidth());
             }
+            if (layoutPatch.getCommitListWidth() != null) {
+                layout.setCommitListWidth(layoutPatch.getCommitListWidth());
+            }
         }
         stateStore.updateGlobalSettings(settings);
         return settings;

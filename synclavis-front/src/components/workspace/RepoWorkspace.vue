@@ -7,11 +7,11 @@ import RepoSidebar from './RepoSidebar.vue';
 import ResizeHandle from '@/components/common/ResizeHandle.vue';
 import RebaseStatusBar from '@/components/rebase/RebaseStatusBar.vue';
 import { gitApi } from '@/api/git';
-import { useElementHeight } from '@/composables/useElementHeight';
+import { useElementHeight, useElementWidth } from '@/composables/useElementHeight';
 import { useReposStore } from '@/stores/repos';
 import { useSettingsStore } from '@/stores/settings';
 import { useTabsStore } from '@/stores/tabs';
-import { LAYOUT_BOUNDS } from '@/utils/layout';
+import { LAYOUT_BOUNDS, RIGHT_COLUMN_MIN_WIDTH } from '@/utils/layout';
 
 const props = defineProps<{ repoId: string }>();
 
@@ -50,6 +50,35 @@ const commitPanelMax = computed(() => {
 const sidebarPreview = ref<number | null>(null);
 const sidebarWidth = computed(() => sidebarPreview.value ?? settings.layout.sidebarWidth);
 
+const commitListPreview = ref<number | null>(null);
+const commitListWidth = computed(
+  () => commitListPreview.value ?? settings.layout.commitListWidth,
+);
+
+/**
+ * 三栏总宽（含两条分隔条）：用它给横向分隔条算动态上限，
+ * 保证任何拖拽组合下右侧 Diff 区都还能留下 RIGHT_COLUMN_MIN_WIDTH。
+ */
+const workspaceRow = ref<HTMLElement | null>(null);
+const rowWidth = useElementWidth(workspaceRow);
+const HANDLE_TOTAL = 10;
+
+const sidebarMax = computed(() => {
+  const available = rowWidth.value - commitListWidth.value - RIGHT_COLUMN_MIN_WIDTH - HANDLE_TOTAL;
+  return Math.min(
+    LAYOUT_BOUNDS.sidebarWidth.max,
+    Math.max(LAYOUT_BOUNDS.sidebarWidth.min, available),
+  );
+});
+
+const commitListMax = computed(() => {
+  const available = rowWidth.value - sidebarWidth.value - RIGHT_COLUMN_MIN_WIDTH - HANDLE_TOTAL;
+  return Math.min(
+    LAYOUT_BOUNDS.commitListWidth.max,
+    Math.max(LAYOUT_BOUNDS.commitListWidth.min, available),
+  );
+});
+
 function onCommitPanelInput(size: number): void {
   commitPanelPreview.value = size;
 }
@@ -66,6 +95,15 @@ function onSidebarInput(size: number): void {
 function onSidebarCommit(size: number): void {
   sidebarPreview.value = null;
   void settings.setLayout({ sidebarWidth: size });
+}
+
+function onCommitListInput(size: number): void {
+  commitListPreview.value = size;
+}
+
+function onCommitListCommit(size: number): void {
+  commitListPreview.value = null;
+  void settings.setLayout({ commitListWidth: size });
 }
 
 // 同步确保 store 中存在该仓库的条目：
@@ -118,18 +156,27 @@ watch(
     </div>
 
     <!-- 三栏均在同一行内独立滚动：整页永不出现滚动条（见《详细设计文档》§9.5） -->
-    <div class="flex min-h-0 flex-1">
+    <div ref="workspaceRow" class="flex min-h-0 flex-1">
       <RepoSidebar :repo-id="repoId" :width="sidebarWidth" />
       <ResizeHandle
         axis="x"
         :size="sidebarWidth"
         :min="LAYOUT_BOUNDS.sidebarWidth.min"
-        :max="LAYOUT_BOUNDS.sidebarWidth.max"
+        :max="sidebarMax"
         label="调整左侧栏宽度"
         @update:size="onSidebarInput"
         @change="onSidebarCommit"
       />
-      <CommitGraph :repo-id="repoId" />
+      <CommitGraph :repo-id="repoId" :width="commitListWidth" />
+      <ResizeHandle
+        axis="x"
+        :size="commitListWidth"
+        :min="LAYOUT_BOUNDS.commitListWidth.min"
+        :max="commitListMax"
+        label="调整提交列表宽度"
+        @update:size="onCommitListInput"
+        @change="onCommitListCommit"
+      />
       <div ref="rightColumn" class="flex min-w-0 flex-1 flex-col">
         <DiffViewer :repo-id="repoId" />
         <ResizeHandle

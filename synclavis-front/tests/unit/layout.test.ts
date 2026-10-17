@@ -43,11 +43,17 @@ describe('layout 工具（F-16 / F-17）', () => {
 
   it('clampLayout 把每个字段各自钳到上下界', () => {
     expect(
-      clampLayout({ commitPanelHeight: 99999, logPanelHeight: 1, sidebarWidth: -20 }),
+      clampLayout({
+        commitPanelHeight: 99999,
+        logPanelHeight: 1,
+        sidebarWidth: -20,
+        commitListWidth: 99999,
+      }),
     ).toEqual({
       commitPanelHeight: LAYOUT_BOUNDS.commitPanelHeight.max,
       logPanelHeight: LAYOUT_BOUNDS.logPanelHeight.min,
       sidebarWidth: LAYOUT_BOUNDS.sidebarWidth.min,
+      commitListWidth: LAYOUT_BOUNDS.commitListWidth.max,
     });
   });
 
@@ -63,15 +69,22 @@ describe('layout 工具（F-16 / F-17）', () => {
     expect(resolveLayout(undefined)).toEqual(DEFAULT_LAYOUT);
     expect(resolveLayout(null)).toEqual(DEFAULT_LAYOUT);
     expect(resolveLayout({ sidebarWidth: 999 })).toEqual({ ...DEFAULT_LAYOUT, sidebarWidth: 420 });
+    // 提交列表列宽：默认 380，超出上界钳到 720
+    expect(DEFAULT_LAYOUT.commitListWidth).toBe(380);
+    expect(resolveLayout({ commitListWidth: 9999 })).toEqual({
+      ...DEFAULT_LAYOUT,
+      commitListWidth: LAYOUT_BOUNDS.commitListWidth.max,
+    });
   });
 
   it('resolveDragSize：invert 决定拖拽方向', () => {
     // 提交面板：向上拖（delta 为负）应变大
     expect(resolveDragSize({ base: 190, delta: -60, invert: true, min: 120, max: 600 })).toBe(250);
     expect(resolveDragSize({ base: 190, delta: 60, invert: true, min: 120, max: 600 })).toBe(130);
-    // 左侧栏：向右拖（delta 为正）变大
-    expect(resolveDragSize({ base: 240, delta: 60, invert: false, min: 180, max: 420 })).toBe(300);
-    expect(resolveDragSize({ base: 240, delta: -60, invert: false, min: 180, max: 420 })).toBe(180);
+    // 左侧栏：向右拖（delta 为正）变大（最小宽度 120）
+    expect(resolveDragSize({ base: 240, delta: 60, invert: false, min: 120, max: 420 })).toBe(300);
+    expect(resolveDragSize({ base: 240, delta: -60, invert: false, min: 120, max: 420 })).toBe(180);
+    expect(resolveDragSize({ base: 240, delta: -999, invert: false, min: 120, max: 420 })).toBe(120);
   });
 
   it('resolveDragSize 在上下界内钳制', () => {
@@ -179,6 +192,26 @@ describe('settings.setLayout（F-18）', () => {
     await first;
 
     expect(store.layout.commitPanelHeight).toBe(320);
+  });
+
+  it('左侧栏最小宽度已按用户要求降为 120（回归：曾为 180）', () => {
+    expect(LAYOUT_BOUNDS.sidebarWidth.min).toBe(120);
+  });
+
+  it('提交列表列宽可单独持久化（只发变更字段）', async () => {
+    mocks.put.mockResolvedValue({
+      theme: 'dark',
+      shortcuts: {},
+      recentRepos: [],
+      layout: fullLayout({ commitListWidth: 520 }),
+    });
+
+    const store = useSettingsStore();
+    await store.setLayout({ commitListWidth: 520 });
+
+    expect(mocks.put).toHaveBeenCalledWith('/api/settings', { layout: { commitListWidth: 520 } });
+    expect(store.layout.commitListWidth).toBe(520);
+    expect(store.layout.sidebarWidth).toBe(DEFAULT_LAYOUT.sidebarWidth);
   });
 
   it('load 用后端 layout 覆盖缓存并回写', async () => {
