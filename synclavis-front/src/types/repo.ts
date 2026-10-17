@@ -72,6 +72,15 @@ export interface BranchInfo {
   behind: number;
 }
 
+/** 分支切换请求（见《详细设计文档》§6.2「写操作」） */
+export interface CheckoutRequest {
+  branch: string;
+  /** true 时新建并切换；起点默认当前 HEAD */
+  create?: boolean;
+  /** 新建分支的起点：本地分支名 / 远程跟踪名（origin/dev）/ commit id */
+  startPoint?: string;
+}
+
 export interface TagInfo {
   name: string;
   commitId: string;

@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { COMMIT_MESSAGE_MIN_WIDTH, DEFAULT_LAYOUT, DIFF_MIN_HEIGHT } from '../../src/utils/layout';
 import {
+  BRANCH_REPO_POINT,
+  CONFLICT_BRANCH,
   HISTORY_COMMITS,
   LOCAL_BARE_POINT,
   LOCAL_REPO_POINT,
@@ -798,4 +800,87 @@ test('E-15 本地 init 仓库添加远程后自动 Fetch，首次推送成功且
   await expect(
     page.locator('[data-testid="remote-branch"]').filter({ hasText: 'main' }),
   ).toBeVisible();
+});
+
+/**
+ * E-16：双击侧栏分支即可切换。
+ *
+ * 覆盖三件事：①本地分支双击切换（当前分支标记、提交历史、「无 upstream」标记都跟着变）；
+ * ②双击远程分支检出同名本地跟踪分支并自动建立 upstream（对话框按「检出」呈现、起点只读）；
+ * ③工作区有改动时切换被拒绝、列出会被覆盖的文件且 HEAD 保持不变。
+ */
+test('E-16 双击分支切换：本地切换 / 远程检出跟踪分支 / 脏工作区冲突', async ({ page }) => {
+  const branchRepoPath = realpathSync(readFileSync(join(here, BRANCH_REPO_POINT), 'utf8').trim());
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开仓库' }).first().click();
+  const openDialog = page.locator('.n-modal').filter({ hasText: '打开仓库' });
+  await expect(openDialog).toBeVisible();
+  await openDialog.getByPlaceholder('/Users/me/projects/my-repo').fill(branchRepoPath);
+  await openDialog.getByRole('button', { name: '打开', exact: true }).click();
+  await expect(openDialog).toBeHidden();
+  await waitForNoOverlay(page);
+
+  const localBranch = (name: string) =>
+    page.locator(`[data-testid="local-branch"][data-name="${name}"]`);
+  const currentBranch = () => page.locator('[data-testid="local-branch"][data-current="true"]');
+
+  // 就绪：夹具仓库当前在 main（1 条提交）
+  await expect(currentBranch()).toHaveAttribute('data-name', 'main');
+  await expect(page.getByText('共 1 个提交')).toBeVisible();
+
+  // ① 双击 feature → 切过去：当前分支标记、提交历史、「无 upstream」标记都跟着变
+  await localBranch('feature').dblclick();
+  await expect(currentBranch()).toHaveAttribute('data-name', 'feature');
+  await expect(page.getByText('共 2 个提交')).toBeVisible();
+  await expect(page.getByTestId('commit-row').filter({ hasText: 'branch-feature-1' })).toBeVisible();
+  // feature 是本地分支且没有 upstream（仓库有 origin，所以该标记会显示）
+  await expect(page.getByText('无 upstream')).toBeVisible();
+
+  // ② 双击 main 切回来 → 提交历史与 upstream 标记都复原
+  await localBranch('main').dblclick();
+  await expect(currentBranch()).toHaveAttribute('data-name', 'main');
+  await expect(page.getByText('共 1 个提交')).toBeVisible();
+  await expect(page.getByText('无 upstream')).toHaveCount(0);
+
+  // ③ 双击远程分支 origin/dev → 打开「检出分支」对话框：起点只读、预填短名 → 确认后检出本地 dev
+  const remoteDev = page.locator('[data-testid="remote-branch"][data-name="origin/dev"]');
+  await expect(remoteDev).toBeVisible();
+  await remoteDev.dblclick();
+  const checkoutDialog = page.locator('.n-modal').filter({ hasText: '检出分支' });
+  await expect(checkoutDialog).toBeVisible();
+  await expect(checkoutDialog.getByPlaceholder('feature/login')).toHaveValue('dev');
+  // 检出语义：标题/按钮为「检出」，来源只读展示 origin/dev，不出现起点选择器
+  await expect(checkoutDialog.getByTestId('new-branch-confirm')).toHaveText('检出');
+  await expect(checkoutDialog.getByTestId('new-branch-source')).toHaveText('origin/dev');
+  await expect(checkoutDialog.getByTestId('new-branch-start')).toHaveCount(0);
+  await checkoutDialog.getByTestId('new-branch-confirm').click();
+  await expect(checkoutDialog).toBeHidden();
+
+  // 本地 dev 出现且为当前分支；起点是 origin/dev，因此 JGit 自动建立了 upstream
+  await expect(currentBranch()).toHaveAttribute('data-name', 'dev');
+  await expect(page.getByText('共 2 个提交')).toBeVisible();
+  await expect(page.getByText('无 upstream')).toHaveCount(0);
+
+  // ③b 「本地分支」标题旁的 `+` 仍是「新建分支」语义：按钮「创建并切换」、起点可选
+  await page.getByTestId('sidebar-new-branch').click();
+  const createDialog = page.locator('.n-modal').filter({ hasText: '新建分支' });
+  await expect(createDialog).toBeVisible();
+  await expect(createDialog.getByTestId('new-branch-confirm')).toHaveText('创建并切换');
+  await expect(createDialog.getByTestId('new-branch-start')).toBeVisible();
+  await createDialog.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(createDialog).toBeHidden();
+
+  // ④ 脏工作区：主仓库里双击一个会被 README 本地改动覆盖的分支 → 被拒绝、HEAD 不变
+  await ensureRepoOpen(page);
+  await localBranch(CONFLICT_BRANCH).dblclick();
+  const conflictDialog = page.locator('.n-dialog').filter({ hasText: '无法切换到' });
+  await expect(conflictDialog).toBeVisible();
+  await expect(page.locator('[data-testid="checkout-conflict"]')).toBeVisible();
+  await expect(conflictDialog).toContainText('README.md');
+  await expect(conflictDialog).toContainText('请先提交或 Stash');
+  // HEAD 未变：仍是 main
+  await expect(currentBranch()).toHaveAttribute('data-name', 'main');
+  await conflictDialog.getByRole('button', { name: '知道了' }).click();
+  await expect(conflictDialog).toBeHidden();
 });

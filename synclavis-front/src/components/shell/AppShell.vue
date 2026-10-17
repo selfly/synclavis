@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { NButton, useMessage } from 'naive-ui';
+import { computed, h, onMounted, ref } from 'vue';
+import { NButton, useDialog, useMessage } from 'naive-ui';
 import { FolderGit2 } from 'lucide-vue-next';
+import { gitApi } from '@/api/git';
 import { operationsApi } from '@/api/operations';
 import QuickActionBar from '@/components/actions/QuickActionBar.vue';
 import CloneRepoDialog from '@/components/dialogs/CloneRepoDialog.vue';
+import NewBranchDialog from '@/components/dialogs/NewBranchDialog.vue';
 import OpenRepoDialog from '@/components/dialogs/OpenRepoDialog.vue';
 import RepoSettingsDialog from '@/components/dialogs/RepoSettingsDialog.vue';
 import OperationLogPanel from '@/components/log/OperationLogPanel.vue';
@@ -17,17 +19,24 @@ import { useOperationsStore } from '@/stores/operations';
 import { useReposStore } from '@/stores/repos';
 import { useSettingsStore } from '@/stores/settings';
 import { useTabsStore } from '@/stores/tabs';
+import type { BranchInfo } from '@/types/repo';
+import { extractConflictFiles } from '@/utils/branches';
 import { LAYOUT_BOUNDS, resolvePanelSize } from '@/utils/layout';
+import { shortRemoteBranchName } from '@/utils/remotes';
 
 const tabs = useTabsStore();
 const repos = useReposStore();
 const operations = useOperationsStore();
 const settings = useSettingsStore();
 const message = useMessage();
+const dialog = useDialog();
 
 const showOpenDialog = ref(false);
 const showCloneDialog = ref(false);
 const showSettingsDialog = ref(false);
+const showNewBranchDialog = ref(false);
+/** 从远程分支检出时的预填（起点 = 远程跟踪名，名字 = 去掉 remote 前缀的短名） */
+const newBranchPreset = ref<{ startPoint: string; name: string } | null>(null);
 const bootError = ref<string | null>(null);
 const booting = ref(true);
 
@@ -59,6 +68,71 @@ function onLogPanelInput(size: number): void {
 function onLogPanelCommit(size: number): void {
   logPanelPreview.value = null;
   void settings.setLayout({ logPanelHeight: size });
+}
+
+/* ---------------------------------------------------------------- 分支切换 */
+
+/**
+ * 双击本地分支：直接尝试切换。
+ *
+ * 不做「脏工作区」预判 —— 与 `git checkout` 一致，能带走的改动会被带走，
+ * 只有会被覆盖的文件才失败（后端返回 `CHECKOUT_CONFLICT` + `details.files`）。
+ */
+async function onCheckout(branch: BranchInfo): Promise<void> {
+  const repoId = tabs.activeId;
+  if (!repoId) {
+    return;
+  }
+  if (operations.isRepoBusy(repoId)) {
+    message.warning('该仓库正在执行其他操作');
+    return;
+  }
+  try {
+    const status = await gitApi.checkout(repoId, { branch: branch.name });
+    // runSync 只推 status、没有 done：branches.current 与提交历史要自己刷
+    tabs.upsertStatus(repoId, status);
+    message.success(`已切换到 ${branch.name}`);
+    await repos.refreshAll(repoId);
+  } catch (error) {
+    reportCheckoutError(branch.name, error);
+  }
+}
+
+/** 双击远程分支：打开对话框，把它检出为同名本地跟踪分支并切换。 */
+function onCheckoutRemote(payload: { name: string; remote: string }): void {
+  newBranchPreset.value = {
+    startPoint: payload.name,
+    name: shortRemoteBranchName(payload.name, payload.remote),
+  };
+  showNewBranchDialog.value = true;
+}
+
+/** 「本地分支」标题旁的 `+`：新建分支并切换。 */
+function onNewBranch(): void {
+  newBranchPreset.value = null;
+  showNewBranchDialog.value = true;
+}
+
+/** 切换失败的统一提示：会被覆盖的文件用对话框列出，其余走 toast。 */
+function reportCheckoutError(branch: string, error: unknown): void {
+  const files = extractConflictFiles(error);
+  if (files.length > 0) {
+    dialog.warning({
+      title: `无法切换到 ${branch}`,
+      content: () =>
+        h('div', { 'data-testid': 'checkout-conflict' }, [
+          h('p', '以下本地改动会被覆盖，请先提交或 Stash：'),
+          h(
+            'ul',
+            { style: 'margin: 6px 0 0 18px; list-style: disc;' },
+            files.map((file) => h('li', file)),
+          ),
+        ]),
+      positiveText: '知道了',
+    });
+    return;
+  }
+  message.error(error instanceof Error ? error.message : String(error));
 }
 
 // 仅订阅当前激活仓库的事件流（见设计文档 §8.3）
@@ -166,6 +240,9 @@ onMounted(async () => {
         :key="tabs.activeId"
         :repo-id="tabs.activeId"
         @settings="showSettingsDialog = true"
+        @checkout="onCheckout"
+        @checkout-remote="onCheckoutRemote"
+        @new-branch="onNewBranch"
       />
     </main>
 
@@ -188,6 +265,14 @@ onMounted(async () => {
       "
     />
     <CloneRepoDialog v-model:show="showCloneDialog" />
+    <NewBranchDialog
+      v-if="tabs.activeId"
+      v-model:show="showNewBranchDialog"
+      :repo-id="tabs.activeId"
+      :mode="newBranchPreset ? 'checkout' : 'create'"
+      :start-point="newBranchPreset?.startPoint"
+      :suggested-name="newBranchPreset?.name"
+    />
     <RepoSettingsDialog
       v-if="tabs.activeId"
       v-model:show="showSettingsDialog"

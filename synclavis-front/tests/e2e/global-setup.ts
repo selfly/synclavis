@@ -30,6 +30,15 @@ export const LOCAL_REPO_POINT = '.repo-path-local';
 /** E-15：留给该仓库添加的 bare 远程路径点文件 */
 export const LOCAL_BARE_POINT = '.repo-bare-local';
 
+/** E-16：分支切换夹具（干净仓库、main 与 feature 内容不同、带 bare 远程的 dev 分支）点文件 */
+export const BRANCH_REPO_POINT = '.repo-path-branch';
+/**
+ * E-16：主仓库上故意造的「切过去会覆盖本地改动」的分支名。
+ *
+ * 它指向 `HEAD~5`，而 README.md 在工作区有未提交改动 —— 双击它必然被拒绝。
+ */
+export const CONFLICT_BRANCH = 'e2e-conflict';
+
 /**
  * 创建 E2E 用的临时仓库，并把路径写入 .repo-path。
  *
@@ -91,6 +100,10 @@ export default async function globalSetup(): Promise<void> {
   writeFileSync(join(repo, LONG_PATH_FILE), 'long path file\n');
   writeFileSync(join(repo, LONG_LINE_FILE), `${'x'.repeat(320)}\n`);
 
+  // E-16 前置：造一个 README 与当前 HEAD 有差异的分支。
+  // 上面已经把 README.md 改脏且未暂存，双击该分支必然触发 CHECKOUT_CONFLICT。
+  git(['branch', CONFLICT_BRANCH, 'HEAD~5'], repo);
+
   writeFileSync(join(here, '.repo-path'), repo, 'utf8');
 
   // E-15 前置：本地 `git init` 且**没有任何 remote** 的仓库，外加一个空的 bare 远程。
@@ -108,6 +121,42 @@ export default async function globalSetup(): Promise<void> {
 
   writeFileSync(join(here, LOCAL_REPO_POINT), localRepo, 'utf8');
   writeFileSync(join(here, LOCAL_BARE_POINT), localBare, 'utf8');
+
+  // E-16 前置：一个**干净**的仓库，用来验证双击切换分支。
+  //   - `main` 与 `feature` 内容不同（提交历史会随 HEAD 变化，可直接断言）；
+  //   - bare 远程上有 `dev` 分支，而本地**故意不留** dev 分支，
+  //     这样双击侧栏的远程分支 `origin/dev` 才能真正演示「检出为本地跟踪分支」。
+  const branchRepo = join(base, 'branch-repo');
+  const branchBare = join(base, 'branch-remote.git');
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', branchRepo]);
+  git(['config', 'user.email', 'e2e@synclavis.local'], branchRepo);
+  git(['config', 'user.name', 'e2e'], branchRepo);
+  writeFileSync(join(branchRepo, 'README.md'), '# branch repo main\n');
+  git(['add', '.'], branchRepo);
+  git(['commit', '-qm', 'branch-main-1'], branchRepo);
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', '--bare', branchBare]);
+  git(['remote', 'add', 'origin', branchBare], branchRepo);
+  git(['push', '-q', '-u', 'origin', 'main'], branchRepo);
+
+  // 远程上的 dev 分支（双击远程分支 → 创建本地跟踪分支的前置）
+  git(['checkout', '-q', '-b', 'dev'], branchRepo);
+  writeFileSync(join(branchRepo, 'dev.txt'), 'dev only\n');
+  git(['add', '.'], branchRepo);
+  git(['commit', '-qm', 'branch-dev-1'], branchRepo);
+  git(['push', '-q', '-u', 'origin', 'dev'], branchRepo);
+
+  // feature 分支：内容与 main 有差异（切过去后提交历史与「无 upstream」标记都会变）
+  git(['checkout', '-q', 'main'], branchRepo);
+  git(['checkout', '-q', '-b', 'feature'], branchRepo);
+  writeFileSync(join(branchRepo, 'feature.txt'), 'feature only\n');
+  git(['add', '.'], branchRepo);
+  git(['commit', '-qm', 'branch-feature-1'], branchRepo);
+
+  // 回到 main；删掉本地 dev，只保留 origin/dev。
+  // 顺序很重要：先切回 main 再删 dev，工作区最终与 main 完全一致（干净）。
+  git(['checkout', '-q', 'main'], branchRepo);
+  git(['branch', '-q', '-D', 'dev'], branchRepo);
+  writeFileSync(join(here, BRANCH_REPO_POINT), branchRepo, 'utf8');
 
   // 记录运行前的主题，交给 global-teardown 还原：
   // E-03 会切换主题并持久化到后端，不还原的话每跑一次 E2E 都会翻转用户的主题偏好。

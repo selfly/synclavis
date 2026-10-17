@@ -7,4 +7,5 @@ playwright-report/
 tests/e2e/.repo-path
 tests/e2e/.repo-path-local
 tests/e2e/.repo-bare-local
+tests/e2e/.repo-path-branch
 tests/e2e/.repo-theme

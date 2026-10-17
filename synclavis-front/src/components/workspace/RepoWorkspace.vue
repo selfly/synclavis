@@ -11,6 +11,7 @@ import { useElementHeight, useElementWidth } from '@/composables/useElementHeigh
 import { useReposStore } from '@/stores/repos';
 import { useSettingsStore } from '@/stores/settings';
 import { useTabsStore } from '@/stores/tabs';
+import type { BranchInfo } from '@/types/repo';
 import {
   COMMIT_MESSAGE_MIN_WIDTH,
   DIFF_MIN_HEIGHT,
@@ -20,7 +21,12 @@ import {
 } from '@/utils/layout';
 
 const props = defineProps<{ repoId: string }>();
-const emit = defineEmits<{ (e: 'settings'): void }>();
+const emit = defineEmits<{
+  (e: 'settings'): void;
+  (e: 'checkout', branch: BranchInfo): void;
+  (e: 'checkout-remote', payload: { name: string; remote: string }): void;
+  (e: 'new-branch'): void;
+}>();
 
 const repos = useReposStore();
 const tabs = useTabsStore();
@@ -213,7 +219,14 @@ watch(
 
     <!-- 三栏均在同一行内独立滚动：整页永不出现滚动条（见《详细设计文档》§9.5） -->
     <div ref="workspaceRow" class="flex min-h-0 min-w-0 flex-1">
-      <RepoSidebar :repo-id="repoId" :width="sidebarWidth" @settings="emit('settings')" />
+      <RepoSidebar
+        :repo-id="repoId"
+        :width="sidebarWidth"
+        @settings="emit('settings')"
+        @checkout="emit('checkout', $event)"
+        @checkout-remote="emit('checkout-remote', $event)"
+        @new-branch="emit('new-branch')"
+      />
       <ResizeHandle
         axis="x"
         :size="sidebarWidth"

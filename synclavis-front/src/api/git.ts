@@ -1,6 +1,7 @@
 import { http } from '@/api/http';
 import type {
   BranchInfo,
+  CheckoutRequest,
   Commit,
   DiffResponse,
   LogResponse,
@@ -43,6 +44,15 @@ export const gitApi = {
   status: (repoId: string) => http.get<RepoStatus>(`/api/repos/${repoId}/status`),
 
   branches: (repoId: string) => http.get<BranchInfo[]>(`/api/repos/${repoId}/branches`),
+
+  /**
+   * 切换分支（`create=true` 时新建并切换），返回切换后的仓库状态（见《详细设计文档》§6.2）。
+   *
+   * 工作区有改动时后端不预判：能带走的改动会被带走，只有会被覆盖的文件才失败，
+   * 此时抛 `ApiRequestError`，`code === 'CHECKOUT_CONFLICT'` 且 `details.files` 为被覆盖路径。
+   */
+  checkout: (repoId: string, body: CheckoutRequest) =>
+    http.post<RepoStatus>(`/api/repos/${repoId}/checkout`, body),
 
   tags: (repoId: string) => http.get<TagInfo[]>(`/api/repos/${repoId}/tags`),
 
