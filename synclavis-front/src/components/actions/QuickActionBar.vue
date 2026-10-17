@@ -9,9 +9,13 @@ import StashButton from './StashButton.vue';
 import { requestOperationCancel, useOperationsStore } from '@/stores/operations';
 import { useReposStore } from '@/stores/repos';
 import { useTabsStore } from '@/stores/tabs';
+import type { PushBody } from '@/api/operations';
 
 const props = defineProps<{ repoId: string }>();
-const emit = defineEmits<{ (e: 'settings'): void }>();
+const emit = defineEmits<{
+  (e: 'settings'): void;
+  (e: 'push', body: PushBody): void;
+}>();
 
 const operations = useOperationsStore();
 const repos = useReposStore();
@@ -51,7 +55,11 @@ function cancel(): void {
     <div class="flex h-[38px] items-center gap-2 px-2">
       <FetchButton :repo-id="repoId" />
       <PullButton :repo-id="repoId" />
-      <PushButton :repo-id="repoId" @open-settings="emit('settings')" />
+      <PushButton
+        :repo-id="repoId"
+        @open-settings="emit('settings')"
+        @push="emit('push', $event)"
+      />
       <StashButton :repo-id="repoId" />
 
       <span class="ml-2 text-xxs text-text-dim">

@@ -12,6 +12,7 @@ import {
   LOCAL_REPO_POINT,
   LONG_LINE_FILE,
   LONG_PATH_FILE,
+  PUSH_REPO_POINT,
   STAGED_PATCH_LINE,
   TRACKED_FILE,
   UNTRACKED_CONTENT,
@@ -780,14 +781,20 @@ test('E-15 本地 init 仓库添加远程后自动 Fetch，首次推送成功且
   // 等自动 Fetch 收尾，否则紧接着的 Push 会撞上每仓库写锁（REPO_BUSY）
   await expect(page.locator('text=执行中…')).toHaveCount(0, { timeout: 20000 });
 
-  // 有 remote 之后 Push 变成「无 upstream」，弹窗文案用实际配置的 remote 名
+  // 有 remote 之后 Push 变成「无 upstream」：不再单独弹「未设置上游分支」，
+  // 而是同一个「推送预览」弹窗——列出待推送提交、说明将设置 upstream、按钮为「设置并推送」
   await expect(page.getByText('无 upstream')).toBeVisible();
   await page.getByTestId('push-button').click();
-  const upstreamDialog = page.locator('.n-dialog').filter({ hasText: '未设置上游分支' });
-  await expect(upstreamDialog).toBeVisible();
-  await expect(upstreamDialog).toContainText('origin');
-  await upstreamDialog.getByRole('button', { name: '设置并推送' }).click();
-  await expect(upstreamDialog).toBeHidden();
+  const pushPreview = page.getByTestId('push-preview-dialog');
+  await expect(pushPreview).toBeVisible();
+  await expect(pushPreview.getByTestId('push-preview-summary')).toContainText('origin/main');
+  await expect(pushPreview.getByTestId('push-preview-upstream')).toContainText('origin/main');
+  await expect(pushPreview.getByTestId('push-preview-commit')).toHaveCount(1);
+  await expect(pushPreview.getByTestId('push-preview-commit')).toContainText('init');
+  const previewConfirm = pushPreview.getByTestId('push-preview-confirm');
+  await expect(previewConfirm).toContainText('设置并推送');
+  await previewConfirm.click();
+  await expect(pushPreview).toBeHidden();
 
   // 推送成功后上游建立，「无 upstream」标记消失
   await expect(page.getByText('无 upstream')).toHaveCount(0, { timeout: 20000 });
@@ -938,4 +945,67 @@ test('E-17 检出冲突后不残留半成品分支：原地重试仍是冲突而
     'data-name',
     'main',
   );
+});
+
+/**
+ * E-18：推送前必须能看清「这次要推什么」。
+ *
+ * 夹具 `main` 已 `push -u`（1 条提交），本地另有 2 条未推送提交。覆盖四件事：
+ * ①预览弹窗按新→旧列出这 2 条（短 hash + subject）并写清目标 `origin/main`；
+ * ②取消不推（远端不变，再点仍列出 2 条）；③确认后推送成功、`ahead` 归零；
+ * ④没有待推送提交时提示「没有需要推送的提交」并禁用确认。
+ */
+test('E-18 推送预览列出待推送提交、取消不推、确认后归零', async ({ page }) => {
+  const pushRepoPath = realpathSync(readFileSync(join(here, PUSH_REPO_POINT), 'utf8').trim());
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开仓库' }).first().click();
+  const openDialog = page.locator('.n-modal').filter({ hasText: '打开仓库' });
+  await expect(openDialog).toBeVisible();
+  await openDialog.getByPlaceholder('/Users/me/projects/my-repo').fill(pushRepoPath);
+  await openDialog.getByRole('button', { name: '打开', exact: true }).click();
+  await expect(openDialog).toBeHidden();
+  await waitForNoOverlay(page);
+
+  // 就绪：3 条提交、本地领先远端 2 条（有 upstream，所以没有「无 upstream」标记）
+  await expect(page.getByText('共 3 个提交')).toBeVisible();
+  await expect(page.getByText('↑2').first()).toBeVisible();
+  await expect(page.getByText('无 upstream')).toHaveCount(0);
+
+  const dialog = page.getByTestId('push-preview-dialog');
+  await page.getByTestId('push-button').click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByTestId('push-preview-summary')).toContainText('将推送 2 个提交');
+  await expect(dialog.getByTestId('push-preview-summary')).toContainText('origin/main');
+  // 已有 upstream → 不再提示「将设置 upstream」
+  await expect(dialog.getByTestId('push-preview-upstream')).toHaveCount(0);
+
+  const rows = dialog.getByTestId('push-preview-commit');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0)).toContainText('push-local-2');
+  await expect(rows.nth(1)).toContainText('push-local-1');
+  await expect(rows.nth(0)).toContainText(/[0-9a-f]{8}/);
+
+  // 取消：不推送，远端没变，再点仍列出同样的 2 条
+  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await page.getByTestId('push-button').click();
+  await expect(dialog.getByTestId('push-preview-commit')).toHaveCount(2);
+
+  // 确认推送（勾选清单里的就是实际推的 2 条）
+  await dialog.getByTestId('push-preview-confirm').click();
+  await expect(dialog).toBeHidden();
+  await page.locator('button:has-text("操作日志")').first().click();
+  await expect(page.locator('text=开始 push origin/main').first()).toBeVisible();
+  await expect(page.locator('text=执行中…')).toHaveCount(0, { timeout: 20000 });
+
+  // 推送成功后 JGit 会更新远程跟踪引用（`PushProcess.updateTrackingRefs`），
+  // 状态里的 ahead 归零 → 再点 Push 已无待推送提交，确认按钮禁用
+  await expect(page.getByText('↑2')).toHaveCount(0, { timeout: 20000 });
+  await page.getByTestId('push-button').click();
+  await expect(dialog.getByTestId('push-preview-empty')).toBeVisible();
+  await expect(dialog.getByTestId('push-preview-commit')).toHaveCount(0);
+  await expect(dialog.getByTestId('push-preview-confirm')).toBeDisabled();
+  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(dialog).toBeHidden();
 });

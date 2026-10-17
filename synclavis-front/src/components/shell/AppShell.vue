@@ -3,11 +3,12 @@ import { computed, h, onMounted, ref } from 'vue';
 import { NButton, useDialog, useMessage } from 'naive-ui';
 import { FolderGit2 } from 'lucide-vue-next';
 import { gitApi } from '@/api/git';
-import { operationsApi } from '@/api/operations';
+import { operationsApi, type PushBody } from '@/api/operations';
 import QuickActionBar from '@/components/actions/QuickActionBar.vue';
 import CloneRepoDialog from '@/components/dialogs/CloneRepoDialog.vue';
 import NewBranchDialog from '@/components/dialogs/NewBranchDialog.vue';
 import OpenRepoDialog from '@/components/dialogs/OpenRepoDialog.vue';
+import PushPreviewDialog from '@/components/dialogs/PushPreviewDialog.vue';
 import RepoSettingsDialog from '@/components/dialogs/RepoSettingsDialog.vue';
 import OperationLogPanel from '@/components/log/OperationLogPanel.vue';
 import RepoTabBar from '@/components/tabs/RepoTabBar.vue';
@@ -35,6 +36,9 @@ const showOpenDialog = ref(false);
 const showCloneDialog = ref(false);
 const showSettingsDialog = ref(false);
 const showNewBranchDialog = ref(false);
+const showPushDialog = ref(false);
+/** 预览弹窗要执行的推送意图（`tags` 不进弹窗，由 PushButton 直接推） */
+const pushBody = ref<PushBody>({});
 /** 从远程分支检出时的预填（起点 = 远程跟踪名，名字 = 去掉 remote 前缀的短名） */
 const newBranchPreset = ref<{ startPoint: string; name: string } | null>(null);
 const bootError = ref<string | null>(null);
@@ -154,16 +158,22 @@ useShortcuts({
     });
   },
   push: () => {
-    void runOperation('push', async (repoId) => {
-      const handle = await operationsApi.push(repoId, {});
-      operations.begin(handle.operationId, repoId, 'push');
-      operations.appendLog(repoId, { level: 'info', text: '开始 push（快捷键）' });
-    });
+    // 快捷键与工具栏走同一入口：先预览本次要推的提交，确认后再推（见《详细设计文档》§6.2）
+    onPush({});
   },
 });
 
+/** 打开「推送预览」弹窗（PushButton / 快捷键共用） */
+function onPush(body: PushBody): void {
+  if (!tabs.activeId) {
+    return;
+  }
+  pushBody.value = body;
+  showPushDialog.value = true;
+}
+
 async function runOperation(
-  kind: 'fetch' | 'push',
+  kind: 'fetch',
   action: (repoId: string) => Promise<void>,
 ): Promise<void> {
   const repoId = tabs.activeId;
@@ -213,6 +223,7 @@ onMounted(async () => {
       v-if="tabs.activeId"
       :repo-id="tabs.activeId"
       @settings="showSettingsDialog = true"
+      @push="onPush"
     />
 
     <main class="flex min-h-0 flex-1">
@@ -272,6 +283,12 @@ onMounted(async () => {
       :mode="newBranchPreset ? 'checkout' : 'create'"
       :start-point="newBranchPreset?.startPoint"
       :suggested-name="newBranchPreset?.name"
+    />
+    <PushPreviewDialog
+      v-if="tabs.activeId"
+      v-model:show="showPushDialog"
+      :repo-id="tabs.activeId"
+      :body="pushBody"
     />
     <RepoSettingsDialog
       v-if="tabs.activeId"

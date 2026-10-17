@@ -108,7 +108,13 @@ public class GitLogService extends AbstractGitService {
         }
     }
 
-    private CommitDto toDto(RevCommit commit, Map<String, List<String>> decorations) {
+    /** 无 ref 装饰的提交信息（推送预览等只需提交本身的地方复用）。 */
+    static CommitDto toDto(RevCommit commit) {
+        return toDto(commit, null);
+    }
+
+    /** {@code decorations} 为 {@code null} 时 {@code refs} 恒为空数组。 */
+    static CommitDto toDto(RevCommit commit, Map<String, List<String>> decorations) {
         CommitDto dto = new CommitDto();
         dto.setId(commit.getName());
         dto.setShortId(commit.abbreviate(8).name());
@@ -123,7 +129,7 @@ public class GitLogService extends AbstractGitService {
             parents.add(parent.getName());
         }
         dto.setParents(parents);
-        List<String> refs = decorations.get(commit.getName());
+        List<String> refs = decorations == null ? null : decorations.get(commit.getName());
         dto.setRefs(refs == null ? new ArrayList<String>() : refs);
         return dto;
     }

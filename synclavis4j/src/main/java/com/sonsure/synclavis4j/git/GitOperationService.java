@@ -2,9 +2,11 @@ package com.sonsure.synclavis4j.git;
 
 import com.sonsure.synclavis4j.auth.TransportAuth;
 import com.sonsure.synclavis4j.auth.TransportAuthConfigurer;
+import com.sonsure.synclavis4j.git.dto.CommitDto;
 import com.sonsure.synclavis4j.git.dto.FetchRequest;
 import com.sonsure.synclavis4j.git.dto.OperationHandleDto;
 import com.sonsure.synclavis4j.git.dto.PullRequest;
+import com.sonsure.synclavis4j.git.dto.PushPreviewDto;
 import com.sonsure.synclavis4j.git.dto.PushRequest;
 import com.sonsure.synclavis4j.git.progress.WebSocketProgressMonitor;
 import com.sonsure.synclavis4j.operation.OperationRegistry;
@@ -30,9 +32,14 @@ import org.eclipse.jgit.api.Status;
 import org.eclipse.jgit.api.errors.CheckoutConflictException;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.Constants;
+import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ProgressMonitor;
+import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.lib.StoredConfig;
+import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevObject;
+import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.RemoteRefUpdate;
@@ -292,6 +299,116 @@ public class GitOperationService extends AbstractGitService {
         }
     }
 
+    // ------------------------------------------------------------------ push preview
+
+    /**
+     * 推送预览：列出本次 push 会推上去的提交（只读、同步、不过写锁）。
+     *
+     * <p>基准引用三级：① 有 upstream → 上游跟踪引用；② 无 upstream 但远端已有同名分支 →
+     * {@code refs/remotes/<remote>/<branch>}（「设置 upstream 并推送」的预览）；③ 都没有
+     * （全新分支首次推送）→ 不在任何远程分支上的提交（{@code base} 为 {@code null}）。</p>
+     */
+    public PushPreviewDto pushPreview(String repoId, PushRequest req) {
+        Repository repository = repo(repoId);
+        try {
+            String branch = req.getBranch() != null && !req.getBranch().isEmpty()
+                    ? req.getBranch() : repository.getBranch();
+            if (branch == null) {
+                throw new GitOperationException(ErrorCode.INTERNAL, "处于分离 HEAD 状态，无法推送分支");
+            }
+            ObjectId head = repository.resolve(Constants.R_HEADS + branch);
+            if (head == null) {
+                throw new GitOperationException(ErrorCode.INVALID_PARAM, "分支不存在或尚无提交：" + branch);
+            }
+
+            String remote = resolveRemote(repository, req.getRemote(), branch);
+            String upstreamRef = upstreamRef(repository, branch);
+            String base = previewBase(repository, remote, branch, upstreamRef);
+
+            PushPreviewDto dto = new PushPreviewDto();
+            dto.setRemote(remote);
+            dto.setBranch(branch);
+            dto.setTargetRef(Constants.R_HEADS + branch);
+            dto.setUpstream(upstreamRef == null ? null : Repository.shortenRefName(upstreamRef));
+            dto.setBase(base);
+
+            ObjectId baseId = base == null ? null : repository.resolve(base);
+            collectOutgoing(repository, head, baseId, dto);
+            if (baseId != null) {
+                dto.setBehind(countReachable(repository, baseId, head));
+            }
+            return dto;
+        } catch (IOException e) {
+            throw new GitOperationException(ErrorCode.INTERNAL,
+                    "读取待推送提交失败：" + e.getMessage(), null, e);
+        }
+    }
+
+    /** 预览基准引用；无法确定时返回 {@code null}（全新分支：不在任何远程分支上的提交）。 */
+    private String previewBase(Repository repository, String remote, String branch, String upstreamRef)
+            throws IOException {
+        // upstream 只在「推的就是它跟踪的那个远程」时才算基准（显式指定了别的 remote 就不算）
+        if (upstreamRef != null && upstreamRef.startsWith(Constants.R_REMOTES + remote + "/")
+                && repository.resolve(upstreamRef) != null) {
+            return upstreamRef;
+        }
+        String sameName = Constants.R_REMOTES + remote + "/" + branch;
+        if (repository.resolve(sameName) != null) {
+            return sameName;
+        }
+        return null;
+    }
+
+    /** 待推送提交按「新→旧」写入 {@code dto}（{@code base} 为 {@code null} 时排除所有远程分支上的提交）。 */
+    private void collectOutgoing(Repository repository, ObjectId head, ObjectId base, PushPreviewDto dto)
+            throws IOException {
+        RevWalk walk = new RevWalk(repository);
+        try {
+            walk.markStart(walk.parseCommit(head));
+            if (base != null) {
+                walk.markUninteresting(walk.parseCommit(base));
+            } else {
+                for (Ref ref : repository.getRefDatabase().getRefsByPrefix(Constants.R_REMOTES)) {
+                    if (ref.getObjectId() == null) {
+                        continue;
+                    }
+                    RevObject object = walk.parseAny(ref.getObjectId());
+                    if (object instanceof RevCommit) {
+                        walk.markUninteresting((RevCommit) object);
+                    }
+                }
+            }
+            int ahead = 0;
+            List<CommitDto> commits = new ArrayList<CommitDto>();
+            for (RevCommit commit : walk) {
+                if (ahead < PushPreviewDto.COMMIT_LIMIT) {
+                    commits.add(GitLogService.toDto(commit));
+                }
+                ahead++;
+            }
+            dto.setAhead(ahead);
+            dto.setCommits(commits);
+        } finally {
+            walk.close();
+        }
+    }
+
+    /** {@code from} 可达但 {@code notReachable} 不可达的提交数（即 behind 数）。 */
+    private int countReachable(Repository repository, ObjectId from, ObjectId notReachable) throws IOException {
+        RevWalk walk = new RevWalk(repository);
+        try {
+            walk.markStart(walk.parseCommit(from));
+            walk.markUninteresting(walk.parseCommit(notReachable));
+            int count = 0;
+            for (RevCommit ignored : walk) {
+                count++;
+            }
+            return count;
+        } finally {
+            walk.close();
+        }
+    }
+
     // ------------------------------------------------------------------ 公共工具
 
     /** rebase 成功状态集合（JGit 的 RebaseResult.Status 没有 isSuccessful()）。 */
@@ -325,14 +442,23 @@ public class GitOperationService extends AbstractGitService {
 
     /** 解析当前分支的上游远程跟踪引用。 */
     private String resolveUpstream(Repository repository, String branch) {
+        String ref = upstreamRef(repository, branch);
+        if (ref == null) {
+            throw new GitOperationException(ErrorCode.NO_UPSTREAM,
+                    "当前分支未设置上游分支，请先设置 upstream");
+        }
+        return ref;
+    }
+
+    /** 解析当前分支的上游远程跟踪引用；未设置 upstream 时返回 {@code null}。 */
+    private String upstreamRef(Repository repository, String branch) {
         StoredConfig config = repository.getConfig();
         String merge = config.getString("branch", branch, "merge");
         String remote = config.getString("branch", branch, "remote");
         if (merge == null || remote == null) {
-            throw new GitOperationException(ErrorCode.NO_UPSTREAM,
-                    "当前分支未设置上游分支，请先设置 upstream");
+            return null;
         }
-        return "refs/remotes/" + remote + "/" + Repository.shortenRefName(merge);
+        return Constants.R_REMOTES + remote + "/" + Repository.shortenRefName(merge);
     }
 
     private String resolveRemote(Repository repository, String explicit, String branch) {

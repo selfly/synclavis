@@ -40,6 +40,13 @@ export const BRANCH_REPO_POINT = '.repo-path-branch';
  */
 export const CHECKOUT_CONFLICT_REPO_POINT = '.repo-path-checkout-conflict';
 /**
+ * E-18：推送预览夹具点文件。
+ *
+ * `main` 已 `push -u origin main`（1 条提交），本地再补 2 条**未推送**提交 ——
+ * 打开即可看到「待推送 2 个提交」，用来验证推送前的提交清单、取消与确认。
+ */
+export const PUSH_REPO_POINT = '.repo-path-push';
+/**
  * E-16：主仓库上故意造的「切过去会覆盖本地改动」的分支名。
  *
  * 它指向 `HEAD~5`，而 README.md 在工作区有未提交改动 —— 双击它必然被拒绝。
@@ -191,6 +198,26 @@ export default async function globalSetup(): Promise<void> {
   // 本地 README 改脏（未暂存）：检出 origin/topic 会覆盖它
   writeFileSync(join(checkoutRepo, 'README.md'), '# checkout conflict dirty\n');
   writeFileSync(join(here, CHECKOUT_CONFLICT_REPO_POINT), checkoutRepo, 'utf8');
+
+  // E-18 前置：`main` 已 push -u（1 条提交），本地再补 2 条未推送提交。
+  //   → 点 Push 的预览弹窗应列出这 2 条；确认推送后（再 Fetch 一次）预览变为空。
+  const pushRepo = join(base, 'push-repo');
+  const pushBare = join(base, 'push-remote.git');
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', pushRepo]);
+  git(['config', 'user.email', 'e2e@synclavis.local'], pushRepo);
+  git(['config', 'user.name', 'e2e'], pushRepo);
+  writeFileSync(join(pushRepo, 'README.md'), '# push repo\n');
+  git(['add', '.'], pushRepo);
+  git(['commit', '-qm', 'push-main-1'], pushRepo);
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', '--bare', pushBare]);
+  git(['remote', 'add', 'origin', pushBare], pushRepo);
+  git(['push', '-q', '-u', 'origin', 'main'], pushRepo);
+  for (let i = 1; i <= 2; i += 1) {
+    appendFileSync(join(pushRepo, 'README.md'), `local line ${i}\n`);
+    git(['add', '.'], pushRepo);
+    git(['commit', '-qm', `push-local-${i}`], pushRepo);
+  }
+  writeFileSync(join(here, PUSH_REPO_POINT), pushRepo, 'utf8');
 
   // 记录运行前的主题，交给 global-teardown 还原：
   // E-03 会切换主题并持久化到后端，不还原的话每跑一次 E2E 都会翻转用户的主题偏好。
