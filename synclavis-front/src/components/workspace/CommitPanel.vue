@@ -125,7 +125,7 @@ async function submit(amend: boolean): Promise<void> {
 
 <template>
   <section
-    class="flex shrink-0 flex-col border-t border-border bg-bg-elev"
+    class="flex shrink-0 flex-col overflow-hidden border-t border-border bg-bg-elev"
     data-testid="commit-panel"
     :style="{ height: `${height}px` }"
   >
@@ -189,31 +189,6 @@ async function submit(amend: boolean): Promise<void> {
 
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
           <template v-if="tab === 'changes'">
-            <template v-if="staged.length">
-              <div
-                class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-0.5 text-xxs text-text-dim"
-              >
-                <span>已暂存 · {{ staged.length }}</span>
-                <button
-                  type="button"
-                  class="ml-auto rounded px-1 hover:bg-bg-hover hover:text-text"
-                  title="全部取消暂存"
-                  data-testid="commit-block-unstage-all"
-                  @click="doUnstage(staged.map((file) => file.path))"
-                >
-                  全部取消暂存
-                </button>
-              </div>
-              <WorktreeFileList
-                section="staged"
-                :files="staged"
-                :view="view"
-                :selected="selectedFile"
-                @inspect="inspect"
-                @unstage="doUnstage"
-              />
-            </template>
-
             <template v-if="unstaged.length">
               <div
                 class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-0.5 text-xxs text-text-dim"
@@ -236,6 +211,31 @@ async function submit(amend: boolean): Promise<void> {
                 :selected="selectedFile"
                 @inspect="inspect"
                 @stage="doStage"
+              />
+            </template>
+
+            <template v-if="staged.length">
+              <div
+                class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-0.5 text-xxs text-text-dim"
+              >
+                <span>已暂存 · {{ staged.length }}</span>
+                <button
+                  type="button"
+                  class="ml-auto rounded px-1 hover:bg-bg-hover hover:text-text"
+                  title="全部取消暂存"
+                  data-testid="commit-block-unstage-all"
+                  @click="doUnstage(staged.map((file) => file.path))"
+                >
+                  全部取消暂存
+                </button>
+              </div>
+              <WorktreeFileList
+                section="staged"
+                :files="staged"
+                :view="view"
+                :selected="selectedFile"
+                @inspect="inspect"
+                @unstage="doUnstage"
               />
             </template>
 
@@ -285,7 +285,11 @@ async function submit(amend: boolean): Promise<void> {
         @change="emit('commit-file-list-width', $event)"
       />
 
-      <div class="flex min-w-0 flex-1 flex-col gap-1 p-2" data-testid="commit-message-area">
+      <div
+        class="flex min-h-0 min-w-0 flex-1 flex-col gap-1 overflow-y-auto p-2"
+        data-testid="commit-message-area"
+      >
+        <!-- 按钮行 sticky 在滚动区底部：信息短时紧跟输入框，面板变矮时也不会被挤出 -->
         <n-input
           v-model:value="text"
           type="textarea"
@@ -294,7 +298,7 @@ async function submit(amend: boolean): Promise<void> {
           :autosize="{ minRows: 2, maxRows: 4 }"
           @keydown.ctrl.enter="submit(false)"
         />
-        <div class="flex justify-end gap-2">
+        <div class="sticky bottom-0 flex shrink-0 justify-end gap-2 bg-bg-elev">
           <n-button size="tiny" :disabled="submitting" @click="submit(true)">Amend</n-button>
           <n-button
             size="tiny"

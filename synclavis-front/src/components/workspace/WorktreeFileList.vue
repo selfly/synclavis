@@ -111,7 +111,7 @@ function actOnPaths(paths: string[]): void {
 
 <template>
   <ul
-    class="min-h-0 flex-1 overflow-y-auto"
+    class="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
     :data-testid="`commit-file-list-${section}`"
     :data-section="section"
   >
@@ -129,7 +129,7 @@ function actOnPaths(paths: string[]): void {
       <template v-if="row.node.dir">
         <ChevronRight v-if="isCollapsed(row.node.path)" :size="11" class="shrink-0 text-text-dim" />
         <ChevronDown v-else :size="11" class="shrink-0 text-text-dim" />
-        <span class="truncate text-text">{{ row.node.name }}</span>
+        <span class="min-w-0 truncate text-text">{{ row.node.name }}</span>
         <span class="shrink-0 text-xxs text-text-dim">{{ row.node.count }}</span>
         <button
           type="button"
@@ -143,7 +143,7 @@ function actOnPaths(paths: string[]): void {
       </template>
 
       <template v-else>
-        <span class="truncate" :class="fileClass">{{ row.node.name }}</span>
+        <span class="min-w-0 truncate" :class="fileClass">{{ row.node.name }}</span>
         <button
           type="button"
           class="ml-auto shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-bg"

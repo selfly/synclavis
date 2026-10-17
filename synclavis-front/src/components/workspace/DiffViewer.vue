@@ -52,9 +52,9 @@ const lineClass: Record<PatchLine['kind'], string> = {
 </script>
 
 <template>
-  <section class="flex min-h-0 flex-1 flex-col" data-testid="diff-viewer">
+  <section class="flex min-h-0 min-w-0 flex-1 flex-col" data-testid="diff-viewer">
     <div
-      class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1.5 text-xxs text-text-dim"
+      class="flex shrink-0 items-center gap-2 overflow-hidden border-b border-border px-2 py-1.5 text-xxs text-text-dim"
       data-testid="diff-header"
     >
       <FileDiff :size="12" />
@@ -64,7 +64,7 @@ const lineClass: Record<PatchLine['kind'], string> = {
         <span class="shrink-0 rounded-sm bg-accent/15 px-1 text-accent">
           {{ worktreeFile.staged ? '已暂存' : '未暂存' }}
         </span>
-        <span class="truncate text-text" :title="worktreeFile.path">{{ worktreeFile.path }}</span>
+        <span class="min-w-0 truncate text-text" :title="worktreeFile.path">{{ worktreeFile.path }}</span>
         <span v-if="worktreeEntry" class="shrink-0">· {{ worktreeEntry.changeType }}</span>
         <span v-if="worktreeEntry && !worktreeEntry.binary" class="shrink-0">
           · <span class="text-success">+{{ worktreeEntry.insertions }}</span>
@@ -86,7 +86,7 @@ const lineClass: Record<PatchLine['kind'], string> = {
       在上方提交列表中选择一个提交，或点击底部暂存区文件查看差异
     </div>
 
-    <div v-else class="flex min-h-0 flex-1 flex-col">
+    <div v-else class="flex min-h-0 min-w-0 flex-1 flex-col">
       <!-- 提交来源才有文件列表；工作区单文件差异不需要列表 -->
       <ul v-if="!worktreeFile" class="max-h-[140px] shrink-0 overflow-y-auto border-b border-border">
         <li
@@ -96,7 +96,7 @@ const lineClass: Record<PatchLine['kind'], string> = {
           @click="repos.loadDiff(props.repoId, selected as string, entry.path)"
         >
           <span class="w-[68px] shrink-0 text-xxs text-text-dim">{{ entry.changeType }}</span>
-          <span class="truncate">{{ entry.path }}</span>
+          <span class="min-w-0 truncate">{{ entry.path }}</span>
           <span v-if="entry.binary" class="ml-auto shrink-0 text-xxs text-warn">binary</span>
           <span v-else class="ml-auto shrink-0 text-xxs">
             <span class="text-success">+{{ entry.insertions }}</span>
@@ -108,7 +108,7 @@ const lineClass: Record<PatchLine['kind'], string> = {
         </li>
       </ul>
 
-      <div class="min-h-0 flex-1 overflow-auto bg-bg">
+      <div class="min-h-0 min-w-0 flex-1 overflow-auto bg-bg">
         <pre
           v-if="patchLines.length > 0"
           class="m-0 p-0 font-mono text-xxs leading-[18px]"

@@ -17,6 +17,8 @@
 }
 
 html[data-theme='dark'] {
+  /* 让原生滚动条/表单控件跟随暗色主题，避免浅色滚动条出现在暗色界面上 */
+  color-scheme: dark;
   --sl-bg: #1e1e1e;
   --sl-bg-elev: #252526;
   --sl-bg-hover: #2a2d2e;
@@ -29,6 +31,7 @@ html[data-theme='dark'] {
 }
 
 html[data-theme='light'] {
+  color-scheme: light;
   --sl-bg: #ffffff;
   --sl-bg-elev: #f3f3f3;
   --sl-bg-hover: #e8e8e8;

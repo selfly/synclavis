@@ -5,6 +5,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { COMMIT_MESSAGE_MIN_WIDTH, DEFAULT_LAYOUT, DIFF_MIN_HEIGHT } from '../../src/utils/layout';
 import {
   HISTORY_COMMITS,
+  LONG_LINE_FILE,
+  LONG_PATH_FILE,
   STAGED_PATCH_LINE,
   TRACKED_FILE,
   UNTRACKED_CONTENT,
@@ -184,10 +186,28 @@ test('E-03 主题切换并持久化（后端为准）', async ({ page }) => {
     .not.toBe(theme);
 
   const toggled = await page.evaluate(() => document.documentElement.getAttribute('data-theme'));
+  // 原生滚动条/控件跟随主题：color-scheme 必须与 data-theme 一致
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme))
+    .toBe(toggled === 'light' ? 'light' : 'dark');
+
+  // 滚动条统一为「细 + 主题色滑块 + 透明轨道」，横向/纵向、diff/列表一致
+  const scrollbar = await page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    return { width: cs.scrollbarWidth, color: cs.scrollbarColor };
+  });
+  expect(scrollbar.width).toBe('thin');
+  expect(scrollbar.color).not.toBe('auto');
+  // `transparent` 的计算值是 rgba(0, 0, 0, 0)
+  expect(scrollbar.color).toContain('rgba(0, 0, 0, 0)');
+
   await page.reload();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.getAttribute('data-theme')))
     .toBe(toggled);
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme))
+    .toBe(toggled === 'light' ? 'light' : 'dark');
 });
 
 test('E-04 刷新后会话恢复（后端持久化 Tab）', async ({ page }) => {
@@ -538,4 +558,108 @@ test('E-12 暂存区树形展示与整目录暂存', async ({ page }) => {
   // 复原为列表，避免影响其它用例
   await toggle.click();
   await expect(page.getByTestId('commit-file-list-untracked').locator('li[data-node-type="dir"]')).toHaveCount(0);
+});
+
+/**
+ * E-13：超长文件路径不能把行内操作按钮或 Commit/Amend 按钮挤出视口。
+ *
+ * 回归：`truncate` 用在 flex 子项上时必须配 `min-w-0`，否则长路径会把行内
+ * `ml-auto` 的暂存按钮顶到裁剪区域外（macOS 覆盖式滚动条又不显眼）；
+ * 提交信息区也必须把按钮钉住，不能被长内容/矮面板挤出去。
+ */
+test('E-13 超长路径不撑破布局，行内与提交按钮仍可见可点', async ({ page }) => {
+  await ensureRepoOpen(page);
+
+  await page.getByTestId('commit-tab-untracked').click();
+  const list = page.getByTestId('commit-file-list-untracked');
+  const row = list.locator(`li[data-path="${LONG_PATH_FILE}"]`);
+  await expect(row).toBeVisible();
+
+  // 1) 行内「暂存」按钮必须留在列表容器内（长路径只截断，不把按钮顶出去）
+  const addButton = row.locator('button[title="暂存"]');
+  await expect(addButton).toBeVisible();
+  const listBox = await list.boundingBox();
+  const addBox = await addButton.boundingBox();
+  expect(listBox).not.toBeNull();
+  expect(addBox).not.toBeNull();
+  expect(addBox!.x).toBeGreaterThanOrEqual(listBox!.x - 1);
+  expect(addBox!.x + addBox!.width).toBeLessThanOrEqual(listBox!.x + listBox!.width + 1);
+
+  // 2) 查看该文件 diff：头部路径同样截断，Commit/Amend 完整落在视口内
+  await row.click();
+  await expect(page.getByTestId('diff-header')).toContainText(LONG_PATH_FILE);
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+  for (const name of ['Commit', 'Amend']) {
+    const box = await page.getByRole('button', { name, exact: true }).boundingBox();
+    expect(box, `${name} 按钮不可见`).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width + 1);
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height + 1);
+  }
+  expect((await layoutMetrics(page)).pageScrolls).toBe(false);
+
+  // 3) 超长 diff 行：只能横向滚动，不能把右列/提交按钮撑出视口
+  //    （回归：RepoWorkspace 根节点缺 min-w-0 时，长行会把整行撑到 2069px）
+  const longLineRow = list.locator(`li[data-path="${LONG_LINE_FILE}"]`);
+  await expect(longLineRow).toBeVisible();
+  await longLineRow.click();
+  await expect(page.getByTestId('diff-header')).toContainText(LONG_LINE_FILE);
+
+  const widened = await page.getByTestId('commit-panel').boundingBox();
+  expect(widened).not.toBeNull();
+  expect(widened!.x + widened!.width).toBeLessThanOrEqual(viewport!.width + 1);
+  for (const name of ['Commit', 'Amend']) {
+    const box = await page.getByRole('button', { name, exact: true }).boundingBox();
+    expect(box, `${name} 按钮被长行撑出视口`).not.toBeNull();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width + 1);
+  }
+  const patchMetrics = await page.getByTestId('diff-patch').evaluate((el) => {
+    const scroller = el.parentElement;
+    return scroller ? { clientW: scroller.clientWidth, scrollW: scroller.scrollWidth } : null;
+  });
+  expect(patchMetrics).not.toBeNull();
+  expect(patchMetrics!.scrollW).toBeGreaterThan(patchMetrics!.clientW + 100);
+
+  // 4) 行内按钮可正常点击（说明既可见也未被遮住）
+  await addButton.click();
+  await expect
+    .poll(async () => list.locator(`li[data-path="${LONG_PATH_FILE}"]`).count())
+    .toBe(0);
+
+  // 复原：从「已暂存」取消暂存，避免污染其它用例与重复运行
+  await page.getByTestId('commit-tab-changes').click();
+  const stagedList = page.getByTestId('commit-file-list-staged');
+  const stagedRow = stagedList.locator(`li[data-path="${LONG_PATH_FILE}"]`);
+  await expect(stagedRow).toBeVisible();
+  await stagedRow.hover();
+  await stagedRow.locator('button[title="取消暂存"]').click();
+  await expect
+    .poll(async () => stagedList.locator(`li[data-path="${LONG_PATH_FILE}"]`).count())
+    .toBe(0);
+
+  // 5) 提交区压到最小高度 + 多行提交信息：按钮行 sticky，仍不能被挤到面板外
+  await page.request.put('/api/settings', {
+    data: { layout: { commitPanelHeight: 120 } },
+  });
+  await page.reload();
+  const panel = page.getByTestId('commit-panel');
+  await expect(panel).toBeVisible();
+  await page.getByPlaceholder('提交信息（Ctrl+Enter 提交）').fill('line1\nline2\nline3\nline4');
+
+  const panelBox = await panel.boundingBox();
+  expect(panelBox).not.toBeNull();
+  for (const name of ['Commit', 'Amend']) {
+    const box = await page.getByRole('button', { name, exact: true }).boundingBox();
+    expect(box, `${name} 按钮被挤出提交区`).not.toBeNull();
+    expect(box!.y).toBeGreaterThanOrEqual(panelBox!.y - 1);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(panelBox!.y + panelBox!.height + 1);
+  }
+
+  // 复原布局基线，避免影响重复运行
+  await page.request.put('/api/settings', {
+    data: { layout: { commitPanelHeight: DEFAULT_LAYOUT.commitPanelHeight } },
+  });
+  await page.reload();
 });

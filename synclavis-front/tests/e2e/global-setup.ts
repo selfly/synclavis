@@ -19,6 +19,11 @@ export const UNTRACKED_CONTENT = 'untracked file content';
 /** 未跟踪的嵌套目录：用于验证树形展示与「整目录暂存 = 其下所有文件」 */
 export const UNTRACKED_DIR = 'nest';
 export const UNTRACKED_DIR_CONTENT = 'nested untracked file';
+/** 超长文件名：验证长路径不会把行内按钮/Commit 按钮挤出视口 */
+export const LONG_PATH_DIR = 'longpath';
+export const LONG_PATH_FILE = `${LONG_PATH_DIR}/${'a'.repeat(80)}.txt`;
+/** 超长 diff 行：验证宽内容只能横向滚动，不能把右列/提交按钮撑出视口 */
+export const LONG_LINE_FILE = `${LONG_PATH_DIR}/long-line.txt`;
 
 /**
  * 创建 E2E 用的临时仓库，并把路径写入 .repo-path。
@@ -76,6 +81,10 @@ export default async function globalSetup(): Promise<void> {
   mkdirSync(join(repo, UNTRACKED_DIR, 'deep'), { recursive: true });
   writeFileSync(join(repo, UNTRACKED_DIR, 'one.txt'), `${UNTRACKED_DIR_CONTENT} one\n`);
   writeFileSync(join(repo, UNTRACKED_DIR, 'deep', 'two.txt'), `${UNTRACKED_DIR_CONTENT} two\n`);
+  // 超长路径（未跟踪）：E-13 的布局回归前置
+  mkdirSync(join(repo, LONG_PATH_DIR), { recursive: true });
+  writeFileSync(join(repo, LONG_PATH_FILE), 'long path file\n');
+  writeFileSync(join(repo, LONG_LINE_FILE), `${'x'.repeat(320)}\n`);
 
   writeFileSync(join(here, '.repo-path'), repo, 'utf8');
 

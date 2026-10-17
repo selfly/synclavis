@@ -203,7 +203,7 @@ watch(
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col">
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col">
     <RebaseStatusBar v-if="rebasing" :repo-id="repoId" />
 
     <div v-if="errorText" class="shrink-0 bg-danger/10 px-3 py-1.5 text-xs text-danger">
@@ -211,7 +211,7 @@ watch(
     </div>
 
     <!-- 三栏均在同一行内独立滚动：整页永不出现滚动条（见《详细设计文档》§9.5） -->
-    <div ref="workspaceRow" class="flex min-h-0 flex-1">
+    <div ref="workspaceRow" class="flex min-h-0 min-w-0 flex-1">
       <RepoSidebar :repo-id="repoId" :width="sidebarWidth" />
       <ResizeHandle
         axis="x"
@@ -232,7 +232,7 @@ watch(
         @update:size="onCommitListInput"
         @change="onCommitListCommit"
       />
-      <div ref="rightColumn" class="flex min-w-0 flex-1 flex-col">
+      <div ref="rightColumn" class="flex min-h-0 min-w-0 flex-1 flex-col">
         <DiffViewer :repo-id="repoId" />
         <ResizeHandle
           axis="y"
