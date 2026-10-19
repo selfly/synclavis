@@ -34,3 +34,80 @@ body {
   scrollbar-width: thin;
   scrollbar-color: rgb(var(--sl-border-rgb)) transparent;
 }
+
+/*
+ * 语法高亮类名 → 主题色。
+ *
+ * 类名是 CodeMirror 6 通过 HighlightStyle 输出的**固定**类名（表见
+ * utils/codeLanguage.ts 的 HIGHLIGHT_CLASSES），所以这里必须用纯 CSS：
+ * 这些类名是运行时拼进 DOM 的，Tailwind 的 content 扫描看不到，写成 `text-[var(--x)]`
+ * 之类的工具类会被静默丢掉（同 §10.8 的 /N 透明度坑）。
+ * 颜色取 tokens.css 的 --sl-hl-*，因此深浅主题自动跟随，无需重建编辑器。
+ */
+.hl-keyword {
+  color: var(--sl-hl-keyword);
+}
+
+.hl-string {
+  color: var(--sl-hl-string);
+}
+
+.hl-comment {
+  color: var(--sl-hl-comment);
+}
+
+.hl-number {
+  color: var(--sl-hl-number);
+}
+
+.hl-type {
+  color: var(--sl-hl-type);
+}
+
+.hl-tag {
+  color: var(--sl-hl-tag);
+}
+
+.hl-attr {
+  color: var(--sl-hl-attr);
+}
+
+.hl-property {
+  color: var(--sl-hl-property);
+}
+
+.hl-function {
+  color: var(--sl-hl-function);
+}
+
+.hl-meta {
+  color: var(--sl-hl-meta);
+}
+
+.hl-heading {
+  color: var(--sl-hl-heading);
+}
+
+.hl-link {
+  color: var(--sl-hl-link);
+}
+
+.hl-diff-add {
+  color: var(--sl-hl-diff-add);
+}
+
+.hl-diff-del {
+  color: var(--sl-hl-diff-del);
+}
+
+.hl-invalid {
+  color: var(--sl-hl-invalid);
+}
+
+.hl-strong {
+  font-weight: 600;
+}
+
+.hl-emphasis {
+  font-style: italic;
+}

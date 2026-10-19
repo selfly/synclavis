@@ -135,6 +135,19 @@ export const FILES_VISIBLE_FILE = 'src/main.ts';
 export const FILES_VISIBLE_CONTENT = 'export const a = 1;';
 
 /**
+ * E-22：语法高亮的抽查夹具。
+ *
+ * 每种语言一个文件，断言「语言徽标 + 固定 token 类名 + token 颜色与正文色不同」。
+ * 这些文件随首个提交入库，所以既能从树里打开，也能走搜索打开。
+ */
+export const FILES_JAVA_FILE = 'src/Main.java';
+export const FILES_YAML_FILE = 'config/app.yml';
+export const FILES_PROPERTIES_FILE = 'config/app.properties';
+export const FILES_XML_FILE = 'pom.xml';
+export const FILES_VUE_FILE = 'src/App.vue';
+export const FILES_HTML_FILE = 'index.html';
+
+/**
  * 创建 E2E 用的临时仓库，并把路径写入 .repo-path。
  *
  * 仓库带一个 bare 远程并已 push -u，这样 Fetch / Pull / Push 按钮才是可用状态
@@ -381,6 +394,45 @@ export default async function globalSetup(): Promise<void> {
   writeFileSync(join(filesRepo, 'README.md'), '# files repo\n');
   mkdirSync(join(filesRepo, 'src'), { recursive: true });
   writeFileSync(join(filesRepo, FILES_VISIBLE_FILE), `${FILES_VISIBLE_CONTENT}\n`);
+  // 语法高亮夹具：每种语言一个文件（内容都保持「首行即出 token」的形状，方便断言）
+  writeFileSync(
+    join(filesRepo, FILES_JAVA_FILE),
+    [
+      'package demo;',
+      '',
+      'public class Main {',
+      '',
+      '  // 入口',
+      '  public static void main(String[] args) {',
+      '    String name = "synclavis";',
+      '    System.out.println(name);',
+      '  }',
+      '}',
+      '',
+    ].join('\n'),
+  );
+  writeFileSync(
+    join(filesRepo, FILES_VUE_FILE),
+    ['<template>', '  <div class="app">{{ msg }}</div>', '</template>', ''].join('\n'),
+  );
+  writeFileSync(
+    join(filesRepo, FILES_HTML_FILE),
+    ['<!DOCTYPE html>', '<html lang="en">', '  <body>hi</body>', '</html>', ''].join('\n'),
+  );
+  writeFileSync(
+    join(filesRepo, FILES_XML_FILE),
+    ['<?xml version="1.0" encoding="UTF-8"?>', '<project>', '  <artifactId>demo</artifactId>', '</project>', ''].join('\n'),
+  );
+  mkdirSync(join(filesRepo, 'config'), { recursive: true });
+  writeFileSync(
+    join(filesRepo, FILES_YAML_FILE),
+    ['server:', '  port: 18080', '  name: synclavis', ''].join('\n'),
+  );
+  // properties 模式会把「=」前的整段（含空格）算成一个 token，所以这里不写空格
+  writeFileSync(
+    join(filesRepo, FILES_PROPERTIES_FILE),
+    ['# 服务配置', 'app.name=synclavis', 'app.port=18080', ''].join('\n'),
+  );
   git(['add', '.'], filesRepo);
   git(['commit', '-qm', 'files-init'], filesRepo);
   writeFileSync(join(filesRepo, FILES_IGNORED_FILE), 'ignored log\n');

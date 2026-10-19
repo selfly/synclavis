@@ -41,6 +41,26 @@ html[data-theme='dark'] {
   --sl-graph-4: #569cd6;
   --sl-graph-5: #ce9178;
   --sl-graph-6: #6a9955;
+
+  /*
+   * 语法高亮配色（只读查看器，见 utils/codeLanguage.ts 的 .hl-* 类名映射）。
+   * 取 VS Code Dark+ 的色值——和上面的泳道图同一套调色板，视觉上一致。
+   */
+  --sl-hl-keyword: #569cd6;
+  --sl-hl-string: #ce9178;
+  --sl-hl-comment: #6a9955;
+  --sl-hl-number: #b5cea8;
+  --sl-hl-type: #4ec9b0;
+  --sl-hl-tag: #569cd6;
+  --sl-hl-attr: #9cdcfe;
+  --sl-hl-property: #9cdcfe;
+  --sl-hl-function: #dcdcaa;
+  --sl-hl-meta: #c586c0;
+  --sl-hl-heading: #569cd6;
+  --sl-hl-link: #4ec9b0;
+  --sl-hl-diff-add: #6a9955;
+  --sl-hl-diff-del: #f48771;
+  --sl-hl-invalid: #f44747;
 }
 
 html[data-theme='light'] {
@@ -57,4 +77,21 @@ html[data-theme='light'] {
   --sl-graph-4: #1d4ed8;
   --sl-graph-5: #c2410c;
   --sl-graph-6: #15803d;
+
+  /* 语法高亮配色：VS Code Light+（keyword 用 IntelliJ Light 的蓝，纯 #0000ff 偏刺眼） */
+  --sl-hl-keyword: #0033b3;
+  --sl-hl-string: #a31515;
+  --sl-hl-comment: #008000;
+  --sl-hl-number: #098658;
+  --sl-hl-type: #267f99;
+  --sl-hl-tag: #800000;
+  --sl-hl-attr: #e50000;
+  --sl-hl-property: #0451a5;
+  --sl-hl-function: #795e26;
+  --sl-hl-meta: #af00db;
+  --sl-hl-heading: #0033b3;
+  --sl-hl-link: #0451a5;
+  --sl-hl-diff-add: #098658;
+  --sl-hl-diff-del: #a31515;
+  --sl-hl-invalid: #cd3131;
 }

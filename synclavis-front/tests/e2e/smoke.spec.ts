@@ -8,11 +8,17 @@ import {
   BRANCH_REPO_POINT,
   CHECKOUT_CONFLICT_REPO_POINT,
   CONFLICT_BRANCH,
+  FILES_HTML_FILE,
   FILES_IGNORED_DIR,
   FILES_IGNORED_FILE,
+  FILES_JAVA_FILE,
+  FILES_PROPERTIES_FILE,
   FILES_REPO_POINT,
   FILES_VISIBLE_CONTENT,
   FILES_VISIBLE_FILE,
+  FILES_VUE_FILE,
+  FILES_XML_FILE,
+  FILES_YAML_FILE,
   HISTORY_COMMITS,
   LOCAL_BARE_POINT,
   LOCAL_REPO_POINT,
@@ -1366,5 +1372,49 @@ test('E-22 项目文件树：懒加载浏览、箭头展开、双击查看只读
   await page.getByTestId('project-file-filter').fill('');
   await expect(tree).toBeVisible();
   await expect(results).toHaveCount(0);
+
+  /*
+   * 语法高亮（只读 CodeMirror 6）。
+   *
+   * 门禁思路：`.hl-*` 是 HighlightStyle 运行时输出的**固定**类名，配色只认
+   * styles/index.css 里的纯 CSS 规则（写成 Tailwind 类会被 content 扫描漏掉、静默失效）。
+   * 所以除了断类名与文本，还要断「token 颜色 ≠ 正文颜色」——类名或 CSS 任一掉链子，
+   * token 都会退化成继承来的正文色，这里必红。
+   *
+   * 抽查 7 种语言（其余语言由 tests/unit/codeLanguage.test.ts 的表驱动覆盖）。
+   */
+  const tokenColor = (selector: string): Promise<string> =>
+    page.getByTestId('file-code').locator(selector).first().evaluate((el) => getComputedStyle(el).color);
+  const plainColor = (): Promise<string> =>
+    page.getByTestId('file-code').locator('.cm-content').evaluate((el) => getComputedStyle(el).color);
+
+  const openBySearch = async (file: string): Promise<void> => {
+    await page.getByTestId('project-file-filter').fill(file);
+    const row = page.getByTestId('project-file-results').locator(`div[data-path="${file}"]`);
+    await expect(row).toBeVisible();
+    await row.dblclick();
+    await expect(page.getByTestId('file-code')).toBeVisible();
+  };
+
+  // 此刻右列仍停在上面的 main.ts（TypeScript）
+  const checkTokens = async (file: string, label: string, token: string, firstText: string): Promise<void> => {
+    if (file !== FILES_VISIBLE_FILE) {
+      await openBySearch(file);
+    }
+    await expect(page.getByTestId('file-language')).toHaveText(`· ${label}`);
+    await expect(page.getByTestId('file-code').locator(token).first()).toHaveText(firstText);
+    expect(await tokenColor(token), `${file} 的 ${token} 应上色`).not.toBe(await plainColor());
+  };
+
+  await checkTokens(FILES_VISIBLE_FILE, 'TypeScript', '.hl-keyword', 'export');
+  await checkTokens(FILES_JAVA_FILE, 'Java', '.hl-keyword', 'package');
+  await checkTokens(FILES_XML_FILE, 'XML', '.hl-tag', 'project');
+  await checkTokens(FILES_HTML_FILE, 'HTML', '.hl-tag', 'html');
+  await checkTokens(FILES_YAML_FILE, 'YAML', '.hl-property', 'server');
+  await checkTokens(FILES_PROPERTIES_FILE, 'Properties', '.hl-property', 'app.name');
+  await checkTokens(FILES_VUE_FILE, 'Vue', '.hl-tag', 'template');
+
+  // 切回文件树视图，避免给后续用例留下过滤状态
+  await page.getByTestId('project-file-filter').fill('');
 });
 
