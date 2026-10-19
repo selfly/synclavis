@@ -300,6 +300,17 @@ export const useReposStore = defineStore('repos', {
       await this.resyncWorktreeSelection(repoId);
     },
 
+    /**
+     * 清空差异区选择（右列回到「未选中」空态）。
+     *
+     * <p>打开项目文件查看时调用：这样「选中提交/工作区文件」一定是从 null 变成非 null 的变化，
+     * 右列才能可靠地从文件内容切回 Diff —— 否则重复点中同一个提交时值没变、监听不触发。</p>
+     */
+    clearSelection(repoId: string): void {
+      this.selectedCommit[repoId] = null;
+      this.selectedFile[repoId] = null;
+    },
+
     /** 写操作后清理缓存 */
     invalidate(repoId: string): void {
       this.details[repoId] = emptyDetail();

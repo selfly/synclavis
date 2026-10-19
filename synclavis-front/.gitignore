@@ -14,3 +14,4 @@ tests/e2e/.repo-path-merge
 tests/e2e/.repo-path-remote-only
 tests/e2e/.repo-theme
 tests/e2e/.repo-path-order
+tests/e2e/.repo-path-files

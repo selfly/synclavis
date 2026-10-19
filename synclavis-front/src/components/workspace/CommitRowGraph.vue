@@ -57,7 +57,7 @@ function toPath(segment: GraphSegment): string {
       y="9"
       text-anchor="end"
       font-size="9"
-      fill="var(--sl-text-dim)"
+      fill="rgb(var(--sl-text-dim-rgb))"
     >
       +{{ row.overflowCount }}
     </text>

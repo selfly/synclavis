@@ -7,11 +7,20 @@
   --sl-font-lg: 15px;
   --sl-radius: 4px;
 
-  /* 语义状态色（跨主题一致） */
-  --sl-accent: #3b82f6;
-  --sl-success: #22c55e;
-  --sl-warn: #f59e0b;
-  --sl-danger: #ef4444;
+  /*
+   * 语义状态色（跨主题一致）。
+   *
+   * 这里**只存 RGB 通道**（空格分隔，不带 rgb()）：tailwind.config.js 用
+   * `rgb(var(--sl-x-rgb) / <alpha-value>)` 组装，才能让 `bg-accent/15`、`bg-danger/10`
+   * 这类透明度修饰符真正生效（纯 `var(--sl-accent)` 形式 Tailwind v3 无法套 alpha，
+   * 类名会被静默丢弃）。CSS 里需要直接取色时写成 `rgb(var(--sl-accent-rgb))`。
+   */
+  --sl-accent-rgb: 59 130 246;
+  --sl-success-rgb: 34 197 94;
+  --sl-warn-rgb: 245 158 11;
+  --sl-danger-rgb: 239 68 68;
+
+  /* diff 底色自带 alpha（不经 Tailwind 调透明度），保持裸色值 */
   --sl-diff-add: #22c55e1a;
   --sl-diff-del: #ef44441a;
 }
@@ -19,12 +28,13 @@
 html[data-theme='dark'] {
   /* 让原生滚动条/表单控件跟随暗色主题，避免浅色滚动条出现在暗色界面上 */
   color-scheme: dark;
-  --sl-bg: #1e1e1e;
-  --sl-bg-elev: #252526;
-  --sl-bg-hover: #2a2d2e;
-  --sl-border: #3c3c3c;
-  --sl-text: #d4d4d4;
-  --sl-text-dim: #8a8a8a;
+  --sl-bg-rgb: 30 30 30;
+  --sl-bg-elev-rgb: 37 37 38;
+  --sl-bg-hover-rgb: 42 45 46;
+  --sl-border-rgb: 60 60 60;
+  --sl-text-rgb: 212 212 212;
+  --sl-text-dim-rgb: 138 138 138;
+  /* 泳道图颜色由 SVG 的 fill/stroke 直接取用（不需要 alpha），保持裸色值 */
   --sl-graph-1: #4ec9b0;
   --sl-graph-2: #dcdcaa;
   --sl-graph-3: #c586c0;
@@ -35,12 +45,12 @@ html[data-theme='dark'] {
 
 html[data-theme='light'] {
   color-scheme: light;
-  --sl-bg: #ffffff;
-  --sl-bg-elev: #f3f3f3;
-  --sl-bg-hover: #e8e8e8;
-  --sl-border: #d4d4d4;
-  --sl-text: #1f1f1f;
-  --sl-text-dim: #6b6b6b;
+  --sl-bg-rgb: 255 255 255;
+  --sl-bg-elev-rgb: 243 243 243;
+  --sl-bg-hover-rgb: 232 232 232;
+  --sl-border-rgb: 212 212 212;
+  --sl-text-rgb: 31 31 31;
+  --sl-text-dim-rgb: 107 107 107;
   --sl-graph-1: #0f766e;
   --sl-graph-2: #a16207;
   --sl-graph-3: #a21caf;

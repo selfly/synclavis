@@ -5,16 +5,18 @@ export default {
   theme: {
     extend: {
       colors: {
-        bg: 'var(--sl-bg)',
-        'bg-elev': 'var(--sl-bg-elev)',
-        'bg-hover': 'var(--sl-bg-hover)',
-        border: 'var(--sl-border)',
-        text: 'var(--sl-text)',
-        'text-dim': 'var(--sl-text-dim)',
-        accent: 'var(--sl-accent)',
-        success: 'var(--sl-success)',
-        warn: 'var(--sl-warn)',
-        danger: 'var(--sl-danger)',
+        // token 只存 RGB 通道（见 styles/tokens.css），此处拼上 `<alpha-value>`，
+        // 否则 `bg-accent/15`、`bg-danger/10` 这类透明度类名会被静默丢弃
+        bg: 'rgb(var(--sl-bg-rgb) / <alpha-value>)',
+        'bg-elev': 'rgb(var(--sl-bg-elev-rgb) / <alpha-value>)',
+        'bg-hover': 'rgb(var(--sl-bg-hover-rgb) / <alpha-value>)',
+        border: 'rgb(var(--sl-border-rgb) / <alpha-value>)',
+        text: 'rgb(var(--sl-text-rgb) / <alpha-value>)',
+        'text-dim': 'rgb(var(--sl-text-dim-rgb) / <alpha-value>)',
+        accent: 'rgb(var(--sl-accent-rgb) / <alpha-value>)',
+        success: 'rgb(var(--sl-success-rgb) / <alpha-value>)',
+        warn: 'rgb(var(--sl-warn-rgb) / <alpha-value>)',
+        danger: 'rgb(var(--sl-danger-rgb) / <alpha-value>)',
       },
       fontSize: {
         xxs: 'var(--sl-font-xs)',

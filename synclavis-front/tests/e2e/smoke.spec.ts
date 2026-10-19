@@ -8,6 +8,11 @@ import {
   BRANCH_REPO_POINT,
   CHECKOUT_CONFLICT_REPO_POINT,
   CONFLICT_BRANCH,
+  FILES_IGNORED_DIR,
+  FILES_IGNORED_FILE,
+  FILES_REPO_POINT,
+  FILES_VISIBLE_CONTENT,
+  FILES_VISIBLE_FILE,
   HISTORY_COMMITS,
   LOCAL_BARE_POINT,
   LOCAL_REPO_POINT,
@@ -1232,3 +1237,134 @@ test('E-21 排序切换：缺省按时间交错，可切按拓扑扎堆', async 
   }));
   expect(metrics.docScrollHeight).toBeLessThanOrEqual(metrics.docClientHeight + 1);
 });
+
+/**
+ * E-22：侧栏「文件」模式的项目文件树（只读浏览）。
+ *
+ * 覆盖：进入文件模式 → 根目录懒加载（未展开时看不到子项）→ 默认隐藏 .gitignore 忽略项
+ * → 单击目录前的箭头展开/折叠、双击目录行同样切换 → 双击文件在右列查看内容（树里高亮当前文件）
+ * → 关闭后回到 Diff → 打开「显示忽略项」后忽略项出现。
+ * 最后复用 E-07 的闸门：树再长也不能把整页撑出滚动条。
+ */
+test('E-22 项目文件树：懒加载浏览、箭头展开、双击查看只读内容', async ({ page }) => {
+  const filesRepoPath = realpathSync(readFileSync(join(here, FILES_REPO_POINT), 'utf8').trim());
+
+  await page.goto('/');
+  await page.getByRole('button', { name: '打开仓库' }).first().click();
+  const openDialog = page.locator('.n-modal').filter({ hasText: '打开仓库' });
+  await expect(openDialog).toBeVisible();
+  await openDialog.getByPlaceholder('/Users/me/projects/my-repo').fill(filesRepoPath);
+  await openDialog.getByRole('button', { name: '打开', exact: true }).click();
+  await expect(openDialog).toBeHidden();
+  await waitForNoOverlay(page);
+
+  await expect(page.getByText('共 1 个提交')).toBeVisible();
+
+  // 切到「文件」模式
+  await page.getByTestId('sidebar-mode-files').click();
+  const tree = page.getByTestId('project-file-tree');
+  await expect(tree).toBeVisible();
+
+  // 根目录：src / README.md / .gitignore 可见；.git 永远不出现
+  await expect(tree.locator('li[data-path="src"]')).toBeVisible();
+  await expect(tree.locator('li[data-path="README.md"]')).toBeVisible();
+  await expect(tree.locator('li[data-path=".gitignore"]')).toBeVisible();
+  await expect(tree.locator('li[data-path=".git"]')).toHaveCount(0);
+
+  // 懒加载：src 没展开前，子项不在树里
+  await expect(tree.locator(`li[data-path="${FILES_VISIBLE_FILE}"]`)).toHaveCount(0);
+
+  // 默认隐藏被忽略的条目
+  await expect(tree.locator(`li[data-path="${FILES_IGNORED_FILE}"]`)).toHaveCount(0);
+  await expect(tree.locator(`li[data-path="${FILES_IGNORED_DIR}"]`)).toHaveCount(0);
+
+  const chevron = tree.locator(`[data-testid="project-file-chevron"][data-path="src"]`);
+
+  // 单击目录前的箭头：展开并懒加载子项（箭头是独立热区，不用先选中行）
+  await expect(chevron).toHaveAttribute('aria-expanded', 'false');
+  await chevron.click();
+  await expect(chevron).toHaveAttribute('aria-expanded', 'true');
+  await expect(tree.locator(`li[data-path="${FILES_VISIBLE_FILE}"]`)).toBeVisible();
+  // 展开/折叠只动树，不该影响右列（此时仍应是 Diff 的初始态：没有 viewer）
+  await expect(page.getByTestId('file-viewer')).toHaveCount(0);
+
+  // 再点一次箭头：折叠，子项消失但目录行还在
+  await chevron.click();
+  await expect(chevron).toHaveAttribute('aria-expanded', 'false');
+  await expect(tree.locator(`li[data-path="${FILES_VISIBLE_FILE}"]`)).toHaveCount(0);
+  await expect(tree.locator('li[data-path="src"]')).toBeVisible();
+
+  // 双击目录行同样能切换（方案 A 保留的行为）
+  await tree.locator('li[data-path="src"]').dblclick();
+  await expect(tree.locator(`li[data-path="${FILES_VISIBLE_FILE}"]`)).toBeVisible();
+
+  // 双击文件：右列从 Diff 换成只读文件内容
+  const fileRow = tree.locator(`li[data-path="${FILES_VISIBLE_FILE}"]`);
+  await fileRow.dblclick();
+  const viewer = page.getByTestId('file-viewer');
+  await expect(viewer).toBeVisible();
+  await expect(viewer).toContainText('只读');
+  await expect(page.getByTestId('file-content')).toContainText(FILES_VISIBLE_CONTENT);
+  await expect(page.getByTestId('diff-viewer')).toHaveCount(0);
+  // 正在查看的文件在树里带高亮标记
+  await expect(fileRow).toHaveAttribute('data-current', 'true');
+  // 并且高亮必须真的渲染出**半透明**底色（回归闸门：token 若退回裸 `var(--sl-*)`，
+  // Tailwind v3 无法套 alpha，`bg-accent/15` 会被静默丢弃、类名在产物 CSS 里根本不存在）。
+  // 先把指针移开，排除行 hover 底色的干扰。
+  await page.mouse.move(900, 400);
+  const highlightBg = await fileRow.evaluate((el) => getComputedStyle(el).backgroundColor);
+  const highlightAlpha = Number(/rgba\([^)]*,\s*([\d.]+)\)$/.exec(highlightBg)?.[1] ?? '1');
+  expect(highlightAlpha).toBeGreaterThan(0);
+  expect(highlightAlpha).toBeLessThan(1);
+
+  // 布局闸门：打开文件后整页仍不滚动
+  const metrics = await page.evaluate(() => ({
+    docScrollHeight: document.documentElement.scrollHeight,
+    docClientHeight: document.documentElement.clientHeight,
+  }));
+  expect(metrics.docScrollHeight).toBeLessThanOrEqual(metrics.docClientHeight + 1);
+
+  // 右列互斥：点提交即从文件内容切回 Diff（打开文件时已清掉 Diff 选择，所以点同一个提交也生效）
+  await page.getByTestId('commit-row').first().click();
+  await expect(page.getByTestId('file-viewer')).toHaveCount(0);
+  await expect(page.getByTestId('diff-viewer')).toBeVisible();
+  // 查看已结束，树里的高亮随之消失
+  await expect(fileRow).toHaveAttribute('data-current', 'false');
+
+  // 再打开一次，用 X 关闭同样回到 Diff
+  await fileRow.dblclick();
+  await expect(viewer).toBeVisible();
+  await expect(fileRow).toHaveAttribute('data-current', 'true');
+  await page.getByTestId('file-viewer-close').click();
+  await expect(page.getByTestId('file-viewer')).toHaveCount(0);
+  await expect(page.getByTestId('diff-viewer')).toBeVisible();
+  await expect(fileRow).toHaveAttribute('data-current', 'false');
+
+  // 「显示忽略项」：忽略项出现（弱化样式由 CSS 负责，此处只断言可见性）
+  await page.getByTestId('project-file-toggle-ignored').click();
+  await expect(tree.locator(`li[data-path="${FILES_IGNORED_FILE}"]`)).toBeVisible();
+  await expect(tree.locator(`li[data-path="${FILES_IGNORED_DIR}"]`)).toBeVisible();
+
+  // 过滤框走后端搜索：此时 src 已因切换忽略项被收起，树里根本看不到它的子项，
+  // 但搜索仍能命中 —— 这正是「本地过滤」做不到的事。
+  await expect(tree.locator(`li[data-path="${FILES_VISIBLE_FILE}"]`)).toHaveCount(0);
+  await page.getByTestId('project-file-filter').fill('main.ts');
+  const results = page.getByTestId('project-file-results');
+  await expect(results).toBeVisible();
+  await expect(results.locator(`div[data-path="${FILES_VISIBLE_FILE}"]`)).toBeVisible();
+  // 按路径匹配：README.md 不命中，同时树视图让位给结果列表
+  await expect(results.locator('div[data-path="README.md"]')).toHaveCount(0);
+  await expect(tree).toHaveCount(0);
+
+  // 搜索结果同样双击即可查看内容，并带同一个高亮标记
+  const resultRow = results.locator(`div[data-path="${FILES_VISIBLE_FILE}"]`);
+  await resultRow.dblclick();
+  await expect(page.getByTestId('file-content')).toContainText(FILES_VISIBLE_CONTENT);
+  await expect(resultRow).toHaveAttribute('data-current', 'true');
+
+  // 清空过滤回到树视图
+  await page.getByTestId('project-file-filter').fill('');
+  await expect(tree).toBeVisible();
+  await expect(results).toHaveCount(0);
+});
+

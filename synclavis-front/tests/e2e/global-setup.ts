@@ -119,6 +119,22 @@ export const ORDER_TOPO_SUBJECTS = [
 export const CONFLICT_BRANCH = 'e2e-conflict';
 
 /**
+ * E-22：项目文件树夹具点文件。
+ *
+ * 仓库很小但五脏俱全：`.gitignore` 是**已提交**的跟踪文件，`src/main.ts` 用于展开+查看，
+ * `debug.log` 与 `build/` 命中忽略规则（提交后才造，保持未跟踪被忽略状态）。
+ */
+export const FILES_REPO_POINT = '.repo-path-files';
+/** E-22：被 `*.log` 忽略的文件（默认不应出现在树里） */
+export const FILES_IGNORED_FILE = 'debug.log';
+/** E-22：被 `build/` 忽略的目录（默认不应出现在树里） */
+export const FILES_IGNORED_DIR = 'build';
+/** E-22：需要展开才能看到的文本文件 */
+export const FILES_VISIBLE_FILE = 'src/main.ts';
+/** E-22：该文件的真实内容（断言查看器渲染的正是文件内容） */
+export const FILES_VISIBLE_CONTENT = 'export const a = 1;';
+
+/**
  * 创建 E2E 用的临时仓库，并把路径写入 .repo-path。
  *
  * 仓库带一个 bare 远程并已 push -u，这样 Fetch / Pull / Push 按钮才是可用状态
@@ -353,6 +369,24 @@ export default async function globalSetup(): Promise<void> {
   commitAt(orderRepo, '2026-02-04T10:00:00+0800', 'order-main-2', 'main.txt', 'm2');
   commitAt(orderRepo, '2026-02-06T10:00:00+0800', 'order-main-3', 'main.txt', 'm3');
   writeFileSync(join(here, ORDER_REPO_POINT), orderRepo, 'utf8');
+
+  // E-22 前置：项目文件树（只读浏览）夹具。
+  //   `.gitignore` 随首个提交入库，忽略项在提交之后才造 —— 这样它们在 git status 里
+  //   既不进「未跟踪」也不进「变更」，纯粹用于验证文件树的忽略过滤。
+  const filesRepo = join(base, 'files-repo');
+  git(['-c', 'init.defaultBranch=main', 'init', '-q', filesRepo]);
+  git(['config', 'user.email', 'e2e@synclavis.local'], filesRepo);
+  git(['config', 'user.name', 'e2e'], filesRepo);
+  writeFileSync(join(filesRepo, '.gitignore'), '*.log\nbuild/\n');
+  writeFileSync(join(filesRepo, 'README.md'), '# files repo\n');
+  mkdirSync(join(filesRepo, 'src'), { recursive: true });
+  writeFileSync(join(filesRepo, FILES_VISIBLE_FILE), `${FILES_VISIBLE_CONTENT}\n`);
+  git(['add', '.'], filesRepo);
+  git(['commit', '-qm', 'files-init'], filesRepo);
+  writeFileSync(join(filesRepo, FILES_IGNORED_FILE), 'ignored log\n');
+  mkdirSync(join(filesRepo, FILES_IGNORED_DIR), { recursive: true });
+  writeFileSync(join(filesRepo, FILES_IGNORED_DIR, 'out.txt'), 'ignored artifact\n');
+  writeFileSync(join(here, FILES_REPO_POINT), filesRepo, 'utf8');
 
   // 记录运行前的主题，交给 global-teardown 还原：
   // E-03 会切换主题并持久化到后端，不还原的话每跑一次 E2E 都会翻转用户的主题偏好。

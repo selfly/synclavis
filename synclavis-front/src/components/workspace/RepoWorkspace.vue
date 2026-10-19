@@ -4,10 +4,12 @@ import CommitGraph from './CommitGraph.vue';
 import CommitPanel from './CommitPanel.vue';
 import DiffViewer from './DiffViewer.vue';
 import RepoSidebar from './RepoSidebar.vue';
+import FileViewer from '@/components/files/FileViewer.vue';
 import ResizeHandle from '@/components/common/ResizeHandle.vue';
 import RebaseStatusBar from '@/components/rebase/RebaseStatusBar.vue';
 import { gitApi } from '@/api/git';
 import { useElementHeight, useElementWidth } from '@/composables/useElementHeight';
+import { useFilesStore } from '@/stores/files';
 import { useReposStore } from '@/stores/repos';
 import { useSettingsStore } from '@/stores/settings';
 import { useTabsStore } from '@/stores/tabs';
@@ -31,7 +33,34 @@ const emit = defineEmits<{
 const repos = useReposStore();
 const tabs = useTabsStore();
 const settings = useSettingsStore();
+const files = useFilesStore();
 const errorText = ref<string | null>(null);
+
+/**
+ * 右列显示文件内容还是 Diff。
+ *
+ * <p>两者互斥：打开文件时清掉 Diff 选择，选中提交/工作区文件时关闭文件查看。
+ * 互斥逻辑放在这里而不是 store 之间互相 import，避免 `repos` 与 `files` 循环依赖。</p>
+ */
+const openedFile = computed(() => files.openedPath(props.repoId));
+
+watch(
+  () => repos.selected(props.repoId),
+  (commitId) => {
+    if (commitId) {
+      files.closeFile(props.repoId);
+    }
+  },
+);
+
+watch(
+  () => repos.worktreeFile(props.repoId),
+  (file) => {
+    if (file) {
+      files.closeFile(props.repoId);
+    }
+  },
+);
 
 const status = computed(
   () => tabs.tabById(props.repoId)?.status ?? repos.detail(props.repoId).status,
@@ -247,7 +276,8 @@ watch(
         @change="onCommitListCommit"
       />
       <div ref="rightColumn" class="flex min-h-0 min-w-0 flex-1 flex-col">
-        <DiffViewer :repo-id="repoId" />
+        <FileViewer v-if="openedFile" :repo-id="repoId" />
+        <DiffViewer v-else :repo-id="repoId" />
         <ResizeHandle
           axis="y"
           invert
