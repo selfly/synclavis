@@ -83,6 +83,30 @@ export const useTabsStore = defineStore('tabs', {
       await reposApi.setActive(repoId);
     },
 
+    /**
+     * 拖拽排序：本地立即生效（拖拽要跟手），再写回后端。
+     *
+     * <p>失败只告警、保留本地顺序，下次 `hydrate()` 以后端为准（见《详细设计文档》§4.2）。</p>
+     */
+    async reorder(from: number, to: number): Promise<void> {
+      const size = this.tabs.length;
+      if (from < 0 || from >= size || to < 0 || to >= size || from === to) {
+        return;
+      }
+      const [moved] = this.tabs.splice(from, 1);
+      this.tabs.splice(to, 0, moved);
+      this.tabs.forEach((tab, index) => {
+        tab.order = index;
+      });
+      this.writeCache();
+
+      try {
+        await reposApi.reorder(this.tabs.map((tab) => tab.id));
+      } catch (error) {
+        console.warn('Tab 顺序持久化失败，保留本地顺序', error);
+      }
+    },
+
     upsertStatus(repoId: string, status: RepoStatus): void {
       const tab = this.tabs.find((item) => item.id === repoId);
       if (tab) {

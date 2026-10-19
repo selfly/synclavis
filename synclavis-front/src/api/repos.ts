@@ -50,6 +50,9 @@ export const reposApi = {
 
   setActive: (repoId: string | null) => http.put<SessionDto>('/api/session/active', { repoId }),
 
+  /** 重排 Tab：ids 必须是当前全部 Tab id 的一个排列 */
+  reorder: (ids: string[]) => http.put<SessionDto>('/api/session/order', { ids }),
+
   recent: (limit = 10) => http.get<RecentRepoDto[]>(`/api/repos/recent?limit=${limit}`),
 
   open: (path: string, sshKeyPath?: string | null) =>

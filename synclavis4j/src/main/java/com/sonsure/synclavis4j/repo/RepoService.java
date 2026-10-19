@@ -16,7 +16,9 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -127,6 +129,42 @@ public class RepoService {
         }
         session.setActiveId(repoId);
         stateStore.save(state);
+        return session;
+    }
+
+    /**
+     * 重排已打开 Tab：{@code ids} 必须是当前全部 Tab id 的一个排列。
+     *
+     * <p>整体校验后再落盘，避免半途失败留下不一致的 order（见《详细设计文档》§6.2）。</p>
+     */
+    public SessionState reorder(List<String> ids) {
+        AppState state = stateStore.load();
+        SessionState session = state.getSession();
+        List<SessionTab> current = session.getTabs();
+        if (ids == null || ids.size() != current.size()) {
+            throw new GitOperationException(ErrorCode.INVALID_PARAM, "Tab 顺序必须包含全部已打开仓库");
+        }
+
+        Map<String, SessionTab> remaining = new LinkedHashMap<String, SessionTab>();
+        for (SessionTab tab : current) {
+            remaining.put(tab.getId(), tab);
+        }
+
+        List<SessionTab> ordered = new ArrayList<SessionTab>();
+        for (String id : ids) {
+            SessionTab tab = remaining.remove(id);
+            if (tab == null) {
+                throw new GitOperationException(ErrorCode.INVALID_PARAM, "Tab 顺序包含未知或重复的仓库：" + id);
+            }
+            ordered.add(tab);
+        }
+        for (int i = 0; i < ordered.size(); i++) {
+            ordered.get(i).setOrder(i);
+        }
+
+        session.setTabs(ordered);
+        stateStore.save(state);
+        log.info("已重排会话 Tab：{}", ids);
         return session;
     }
 

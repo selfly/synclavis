@@ -4,6 +4,7 @@ import com.sonsure.synclavis4j.git.GitCloneService;
 import com.sonsure.synclavis4j.git.dto.OperationHandleDto;
 import com.sonsure.synclavis4j.repo.dto.CloneRepoRequest;
 import com.sonsure.synclavis4j.repo.dto.OpenRepoRequest;
+import com.sonsure.synclavis4j.repo.dto.ReorderSessionRequest;
 import com.sonsure.synclavis4j.repo.dto.RepoSettingsDto;
 import com.sonsure.synclavis4j.repo.dto.SetActiveRequest;
 import com.sonsure.synclavis4j.repo.dto.UpdateRepoSettingsRequest;
@@ -48,6 +49,11 @@ public class RepoController {
     @PutMapping("/session/active")
     public ApiResponse<SessionState> setActive(@RequestBody SetActiveRequest request) {
         return ApiResponse.ok(repoService.setActive(request == null ? null : request.getRepoId()));
+    }
+
+    @PutMapping("/session/order")
+    public ApiResponse<SessionState> reorder(@RequestBody ReorderSessionRequest request) {
+        return ApiResponse.ok(repoService.reorder(request == null ? null : request.getIds()));
     }
 
     @GetMapping("/repos/recent")

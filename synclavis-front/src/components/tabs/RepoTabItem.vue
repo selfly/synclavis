@@ -3,11 +3,21 @@ import { AlertTriangle, GitBranch, Loader2, X } from 'lucide-vue-next';
 import { useOperationsStore } from '@/stores/operations';
 import type { RepoTabState } from '@/stores/tabs';
 
-defineProps<{ tab: RepoTabState; active: boolean }>();
+const props = defineProps<{
+  tab: RepoTabState;
+  active: boolean;
+  /** 正在被拖拽的 Tab（半透明） */
+  dragging?: boolean;
+  /** 拖拽落点提示：落在本 Tab 的前/后 */
+  dropPosition?: 'before' | 'after' | null;
+}>();
 
 const emit = defineEmits<{
   (e: 'activate', id: string): void;
   (e: 'close', id: string): void;
+  (e: 'dragstart', id: string): void;
+  (e: 'dragover', id: string, after: boolean): void;
+  (e: 'dragend'): void;
 }>();
 
 const operations = useOperationsStore();
@@ -46,15 +56,53 @@ function onAuxClick(event: MouseEvent, id: string): void {
     emit('close', id);
   }
 }
+
+/** 拖拽起始：必须写入 dataTransfer，否则 Firefox 不触发拖拽 */
+function onDragStart(event: DragEvent): void {
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', props.tab.id);
+  }
+  emit('dragstart', props.tab.id);
+}
+
+/**
+ * 拖拽经过：按指针在中线左侧还是右侧，决定落在本 Tab 前还是后。
+ *
+ * 真正落地在 `RepoTabBar` 的容器上，这样落在 Tab 之间的空隙也能用最近一次的落点。
+ */
+function onDragOver(event: DragEvent): void {
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) {
+    return;
+  }
+  const rect = target.getBoundingClientRect();
+  emit('dragover', props.tab.id, event.clientX > rect.left + rect.width / 2);
+}
 </script>
 
 <template>
   <div
-    class="group flex h-[28px] min-w-[140px] max-w-[260px] cursor-pointer items-center gap-1.5 rounded-t border-r border-border px-2 text-xs transition-colors"
-    :class="active ? 'bg-bg text-text' : 'bg-bg-elev text-text-dim hover:bg-bg-hover'"
+    class="group relative flex h-[28px] min-w-[140px] max-w-[260px] cursor-pointer items-center gap-1.5 rounded-t border-r border-border px-2 text-xs transition-colors"
+    :class="[
+      active ? 'bg-bg text-text' : 'bg-bg-elev text-text-dim hover:bg-bg-hover',
+      dragging ? 'opacity-40' : '',
+      dropPosition === 'before'
+        ? 'before:absolute before:inset-y-0 before:-left-px before:w-0.5 before:bg-accent'
+        : '',
+      dropPosition === 'after'
+        ? 'after:absolute after:inset-y-0 after:-right-px after:w-0.5 after:bg-accent'
+        : '',
+    ]"
     :title="tab.path"
+    draggable="true"
+    data-testid="repo-tab"
+    :data-repo-id="tab.id"
     @click="emit('activate', tab.id)"
     @auxclick="onAuxClick($event, tab.id)"
+    @dragstart="onDragStart"
+    @dragover.prevent="onDragOver"
+    @dragend="emit('dragend')"
   >
     <Loader2 v-if="busy(tab.id)" :size="12" class="shrink-0 animate-spin text-accent" />
     <GitBranch v-else :size="12" class="shrink-0" />

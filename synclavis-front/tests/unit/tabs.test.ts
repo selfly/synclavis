@@ -153,8 +153,7 @@ describe('tabs store', () => {
     expect(store.activeId).toBeNull();
   });
 
-  it('upsertStatus 只更新对应仓库', async () => {
-    mocks.get.mockResolvedValue({
+  it('upsertStatus 只更新对应仓库', async () => {    mocks.get.mockResolvedValue({
       activeId: 'a',
       tabs: [
         { id: 'a', path: '/tmp/a', name: 'a', sshKeyPath: null, pullStrategy: 'merge', order: 0 },
@@ -182,5 +181,47 @@ describe('tabs store', () => {
 
     expect(store.tabById('a')?.status?.ahead).toBe(1);
     expect(store.tabById('b')?.status).toBeNull();
+  });
+
+  it('reorder 本地立即换位并写回后端完整 id 列表', async () => {
+    mocks.get.mockResolvedValue({
+      activeId: 'a',
+      tabs: [
+        { id: 'a', path: '/tmp/a', name: 'a', sshKeyPath: null, pullStrategy: 'merge', order: 0 },
+        { id: 'b', path: '/tmp/b', name: 'b', sshKeyPath: null, pullStrategy: 'merge', order: 1 },
+        { id: 'c', path: '/tmp/c', name: 'c', sshKeyPath: null, pullStrategy: 'merge', order: 2 },
+      ],
+    });
+    mocks.put.mockResolvedValue({ activeId: 'a', tabs: [] });
+
+    const store = useTabsStore();
+    await store.hydrate();
+    await store.reorder(2, 0);
+
+    expect(store.tabs.map((tab) => tab.id)).toEqual(['c', 'a', 'b']);
+    expect(store.tabs.map((tab) => tab.order)).toEqual([0, 1, 2]);
+    expect(store.activeId).toBe('a');
+    expect(mocks.put).toHaveBeenCalledWith('/api/session/order', { ids: ['c', 'a', 'b'] });
+  });
+
+  it('reorder 持久化失败时保留本地顺序', async () => {
+    mocks.get.mockResolvedValue({
+      activeId: 'a',
+      tabs: [
+        { id: 'a', path: '/tmp/a', name: 'a', sshKeyPath: null, pullStrategy: 'merge', order: 0 },
+        { id: 'b', path: '/tmp/b', name: 'b', sshKeyPath: null, pullStrategy: 'merge', order: 1 },
+      ],
+    });
+    mocks.put.mockRejectedValue(new Error('network down'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const store = useTabsStore();
+    await store.hydrate();
+    await store.reorder(0, 1);
+
+    expect(store.tabs.map((tab) => tab.id)).toEqual(['b', 'a']);
+    expect(store.tabs.map((tab) => tab.order)).toEqual([0, 1]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

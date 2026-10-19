@@ -80,6 +80,18 @@ async function ensureRepoOpen(page: Page): Promise<void> {
   await expect(page.getByTestId('commit-row').filter({ hasText: NEWEST_SUBJECT })).toBeVisible();
 }
 
+/** 读取后端会话（顺序即 Tab 展示顺序） */
+interface SessionSnapshot {
+  activeId: string | null;
+  tabs: Array<{ id: string; name: string; path: string }>;
+}
+
+async function readSession(page: Page): Promise<SessionSnapshot> {
+  const response = await page.request.get('/api/session');
+  const payload = (await response.json()) as { data: SessionSnapshot };
+  return payload.data;
+}
+
 /** 读取影响「提交流是否可见」的关键布局指标 */
 async function layoutMetrics(page: Page) {
   return page.evaluate(() => {
@@ -249,6 +261,84 @@ test('E-04 刷新后会话恢复（后端持久化 Tab）', async ({ page }) => 
 
   await expect(page.locator('text=e2e-repo').first()).toBeVisible();
   await expect(page.locator('button:has-text("Fetch")').first()).toBeVisible();
+});
+
+test('E-23 Tab 拖拽排序并持久化为后端会话顺序', async ({ page }) => {
+  await ensureRepoOpen(page);
+
+  const original = await readSession(page);
+  const mainTab = original.tabs.find((tab) => tab.path === repoRealPath);
+  if (!mainTab) {
+    throw new Error('主仓库 Tab 未打开');
+  }
+
+  const branchPath = readFileSync(join(here, BRANCH_REPO_POINT), 'utf8').trim();
+  const openResponse = await page.request.post('/api/repos/open', { data: { path: branchPath } });
+  const opened = (await openResponse.json()) as { data: { id: string } };
+  const branchId = opened.data.id;
+
+  try {
+    // 打开新仓库会把激活项切过去；先切回主仓库，用来验证拖拽本身不改变激活项
+    await page.request.put('/api/session/active', { data: { repoId: mainTab.id } });
+    await page.reload();
+
+    const source = page.locator(`[data-testid="repo-tab"][data-repo-id="${mainTab.id}"]`);
+    const target = page.locator(`[data-testid="repo-tab"][data-repo-id="${branchId}"]`);
+    await expect(source).toBeVisible();
+    await expect(target).toBeVisible();
+
+    const box = await target.boundingBox();
+    if (!box) {
+      throw new Error('找不到目标 Tab 的位置');
+    }
+    // 落在右半区 = 插到该 Tab 之后
+    await source.dragTo(target, { targetPosition: { x: box.width - 4, y: box.height / 2 } });
+
+    const expectedIds = original.tabs
+      .map((tab) => tab.id)
+      .filter((id) => id !== mainTab.id)
+      .concat([branchId, mainTab.id]);
+
+    await expect
+      .poll(async () => (await readSession(page)).tabs.map((tab) => tab.id))
+      .toEqual(expectedIds);
+    expect((await readSession(page)).activeId).toBe(mainTab.id);
+
+    // 刷新：localStorage 镜像与后端顺序一致
+    await page.reload();
+    await expect
+      .poll(() =>
+        page
+          .getByTestId('repo-tab')
+          .evaluateAll((elements) =>
+            elements.map((element) => (element as HTMLElement).dataset.repoId),
+          ),
+      )
+      .toEqual(expectedIds);
+
+    // 清掉本地缓存：顺序仍由后端恢复（后端为唯一真相）
+    await page.evaluate(() => localStorage.removeItem('synclavis.session.v1'));
+    await page.reload();
+    await expect
+      .poll(() =>
+        page
+          .getByTestId('repo-tab')
+          .evaluateAll((elements) =>
+            elements.map((element) => (element as HTMLElement).dataset.repoId),
+          ),
+      )
+      .toEqual(expectedIds);
+  } finally {
+    // 只清理本次新增的临时 Tab，并把真实会话的顺序/激活项原样还原
+    await page.request.delete(`/api/repos/${branchId}`);
+    await page.request.put('/api/session/order', {
+      data: { ids: original.tabs.map((tab) => tab.id) },
+    });
+    if (original.activeId) {
+      await page.request.put('/api/session/active', { data: { repoId: original.activeId } });
+    }
+    await page.reload();
+  }
 });
 
 test('E-05 Fetch 触发操作并出现操作日志', async ({ page }) => {
