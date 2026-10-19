@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--sl-bg);
+  color: var(--sl-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei',
+    Roboto, Helvetica, Arial, sans-serif;
+  font-size: var(--sl-font-md);
+  -webkit-font-smoothing: antialiased;
+}
+
+*:focus-visible {
+  outline: 1px solid var(--sl-accent);
+  outline-offset: -1px;
+}
+
+/*
+ * 统一滚动条：细、主题色、透明轨道。
+ *
+ * 只使用标准属性，不覆盖 ::-webkit-scrollbar：
+ * 这样各浏览器/各滚动容器（提交列表、暂存区、diff 横/纵）颜色一致，
+ * 同时尽量保留 macOS 覆盖式滚动条的自动隐藏行为。
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sl-border) transparent;
+}

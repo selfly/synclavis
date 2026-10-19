@@ -1,0 +1,13 @@
+<!--
+  品牌标记（浏览器 favicon）。
+  图形真源：src/components/common/BrandLogo.vue，改形状时两边必须同步。
+  与内联版唯一的差异：favicon 是独立 SVG 文档，读不到界面主题变量、也不需要
+  currentColor 跟着主题走，因此把品牌色固定为 accent 的值 #3b82f6。
+  注意：svg 是严格 XML，注释里不能出现连续两个减号。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+     fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M20.5 12a8.5 8.5 0 1 1-2.9-6.4" />
+  <path d="M20.5 3.5v5h-5" />
+  <circle cx="9" cy="12" r="1.6" fill="#3b82f6" stroke="none" />
+</svg>

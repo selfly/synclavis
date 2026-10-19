@@ -1,0 +1,131 @@
+import { http } from '@/api/http';
+import type {
+  BranchInfo,
+  CheckoutRequest,
+  Commit,
+  DiffResponse,
+  LogResponse,
+  RebaseStatus,
+  RepoStatus,
+  StashInfo,
+  TagInfo,
+} from '@/types/repo';
+
+export interface LogQuery {
+  skip?: number;
+  limit?: number;
+  author?: string;
+  q?: string;
+  ref?: string;
+  /** `true` = 遍历全部引用（等价 `git log --all`，见《详细设计文档》§6.2） */
+  all?: boolean;
+  /** 提交顺序：`date` = 按时间（缺省，≈ `git log --date-order`），`topo` = 同分支扎堆 */
+  order?: LogOrder;
+}
+
+/** 提交列表顺序（《详细设计文档》§6.2） */
+export type LogOrder = 'date' | 'topo';
+
+function toQuery(query: LogQuery): string {
+  const parts: string[] = [];
+  if (query.skip !== undefined) {
+    parts.push(`skip=${query.skip}`);
+  }
+  if (query.limit !== undefined) {
+    parts.push(`limit=${query.limit}`);
+  }
+  if (query.author) {
+    parts.push(`author=${encodeURIComponent(query.author)}`);
+  }
+  if (query.q) {
+    parts.push(`q=${encodeURIComponent(query.q)}`);
+  }
+  if (query.ref) {
+    parts.push(`ref=${encodeURIComponent(query.ref)}`);
+  }
+  if (query.all !== undefined) {
+    parts.push(`all=${query.all}`);
+  }
+  if (query.order) {
+    parts.push(`order=${query.order}`);
+  }
+  return parts.length > 0 ? `?${parts.join('&')}` : '';
+}
+
+/** 仓库只读查询与暂存/提交接口（见《详细设计文档》§6.2） */
+export const gitApi = {
+  status: (repoId: string) => http.get<RepoStatus>(`/api/repos/${repoId}/status`),
+
+  branches: (repoId: string) => http.get<BranchInfo[]>(`/api/repos/${repoId}/branches`),
+
+  /**
+   * 切换分支（`create=true` 时新建并切换），返回切换后的仓库状态（见《详细设计文档》§6.2）。
+   *
+   * 工作区有改动时后端不预判：能带走的改动会被带走，只有会被覆盖的文件才失败，
+   * 此时抛 `ApiRequestError`，`code === 'CHECKOUT_CONFLICT'` 且 `details.files` 为被覆盖路径。
+   */
+  checkout: (repoId: string, body: CheckoutRequest) =>
+    http.post<RepoStatus>(`/api/repos/${repoId}/checkout`, body),
+
+  tags: (repoId: string) => http.get<TagInfo[]>(`/api/repos/${repoId}/tags`),
+
+  log: (repoId: string, query: LogQuery = {}) =>
+    http.get<LogResponse>(`/api/repos/${repoId}/log${toQuery(query)}`),
+
+  commitDiff: (repoId: string, commitId: string, path?: string) =>
+    http.get<DiffResponse>(
+      `/api/repos/${repoId}/commits/${commitId}/diff${path ? `?path=${encodeURIComponent(path)}` : ''}`,
+    ),
+
+  /**
+   * 暂存区/工作区单文件差异（见《详细设计文档》§6.2）。
+   *
+   * `staged=true` 比较 HEAD↔索引（"已暂存"的内容）；
+   * `staged=false` 比较 索引↔工作区（"未暂存"与未跟踪文件）。
+   */
+  worktreeDiff: (repoId: string, path: string, staged: boolean) =>
+    http.get<DiffResponse>(
+      `/api/repos/${repoId}/worktree/diff?path=${encodeURIComponent(path)}&staged=${staged}`,
+    ),
+
+  stashes: (repoId: string) => http.get<StashInfo[]>(`/api/repos/${repoId}/stash`),
+
+  stashCreate: (repoId: string, body: { includeUntracked?: boolean; message?: string } = {}) =>
+    http.post<StashInfo>(`/api/repos/${repoId}/stash`, body),
+
+  stashApply: (repoId: string, index: number) =>
+    http.post<{ index: number; action: string }>(`/api/repos/${repoId}/stash/${index}/apply`),
+
+  stashDrop: (repoId: string, index: number) =>
+    http.post<{ index: number; action: string }>(`/api/repos/${repoId}/stash/${index}/drop`),
+
+  stashPop: (repoId: string, index: number) =>
+    http.post<{ index: number; action: string }>(`/api/repos/${repoId}/stash/${index}/pop`),
+
+  stage: (repoId: string, paths: string[]) =>
+    http.post<{ staged: number }>(`/api/repos/${repoId}/stage`, { paths }),
+
+  unstage: (repoId: string, paths: string[]) =>
+    http.post<{ unstaged: number }>(`/api/repos/${repoId}/unstage`, { paths }),
+
+  commit: (repoId: string, message: string, amend = false, files?: string[]) =>
+    http.post<{ id: string; subject: string }>(`/api/repos/${repoId}/commit`, {
+      message,
+      amend,
+      files: files ?? null,
+    }),
+
+  rebaseStatus: (repoId: string) =>
+    http.get<RebaseStatus>(`/api/repos/${repoId}/rebase/status`),
+
+  rebaseContinue: (repoId: string) =>
+    http.post<{ action: string }>(`/api/repos/${repoId}/rebase/continue`),
+
+  rebaseSkip: (repoId: string) =>
+    http.post<{ action: string }>(`/api/repos/${repoId}/rebase/skip`),
+
+  rebaseAbort: (repoId: string) =>
+    http.post<{ action: string }>(`/api/repos/${repoId}/rebase/abort`),
+};
+
+export type { Commit };
