@@ -11,12 +11,15 @@ import OpenRepoDialog from '@/components/dialogs/OpenRepoDialog.vue';
 import PushPreviewDialog from '@/components/dialogs/PushPreviewDialog.vue';
 import RepoSettingsDialog from '@/components/dialogs/RepoSettingsDialog.vue';
 import OperationLogPanel from '@/components/log/OperationLogPanel.vue';
+import PluginsDialog from '@/components/plugins/PluginsDialog.vue';
+import PluginSlot from '@/components/plugins/PluginSlot.vue';
 import RepoTabBar from '@/components/tabs/RepoTabBar.vue';
 import RepoWorkspace from '@/components/workspace/RepoWorkspace.vue';
 import { useRepoEvents } from '@/composables/useRepoEvents';
 import { useShortcuts } from '@/composables/useShortcuts';
 import { useViewportHeight } from '@/composables/useElementHeight';
 import { useOperationsStore } from '@/stores/operations';
+import { usePluginsStore } from '@/stores/plugins';
 import { useReposStore } from '@/stores/repos';
 import { useSettingsStore } from '@/stores/settings';
 import { useTabsStore } from '@/stores/tabs';
@@ -29,12 +32,14 @@ const tabs = useTabsStore();
 const repos = useReposStore();
 const operations = useOperationsStore();
 const settings = useSettingsStore();
+const plugins = usePluginsStore();
 const message = useMessage();
 const dialog = useDialog();
 
 const showOpenDialog = ref(false);
 const showCloneDialog = ref(false);
 const showSettingsDialog = ref(false);
+const showPluginsDialog = ref(false);
 const showNewBranchDialog = ref(false);
 const showPushDialog = ref(false);
 /** 预览弹窗要执行的推送意图（`tags` 不进弹窗，由 PushButton 直接推） */
@@ -192,6 +197,18 @@ async function runOperation(
 }
 
 onMounted(async () => {
+  plugins.setNotifier((text, type) => {
+    if (type === 'success') {
+      message.success(text);
+    } else if (type === 'warning') {
+      message.warning(text);
+    } else if (type === 'error') {
+      message.error(text);
+    } else {
+      message.info(text);
+    }
+  });
+  void plugins.load();
   try {
     await settings.load();
   } catch {
@@ -217,7 +234,7 @@ onMounted(async () => {
     overflow-hidden 作为兜底：今后任何内容超高都只在内部滚动，绝不产生整页滚动。
   -->
   <div class="flex h-screen flex-col overflow-hidden bg-bg text-text">
-    <RepoTabBar @open="showOpenDialog = true" />
+    <RepoTabBar @open="showOpenDialog = true" @plugins="showPluginsDialog = true" />
 
     <QuickActionBar
       v-if="tabs.activeId"
@@ -254,6 +271,17 @@ onMounted(async () => {
         @checkout="onCheckout"
         @checkout-remote="onCheckoutRemote"
         @new-branch="onNewBranch"
+      />
+
+      <PluginSlot
+        v-if="
+          tabs.activeId &&
+          plugins.rightDockOpen &&
+          plugins.viewsFor('rightDock').length > 0
+        "
+        dock="rightDock"
+        class="w-[360px] shrink-0 border-l"
+        @close="plugins.setRightDockOpen(false)"
       />
     </main>
 
@@ -295,5 +323,6 @@ onMounted(async () => {
       v-model:show="showSettingsDialog"
       :repo-id="tabs.activeId"
     />
+    <PluginsDialog v-model:show="showPluginsDialog" />
   </div>
 </template>

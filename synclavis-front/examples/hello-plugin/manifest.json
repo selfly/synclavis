@@ -1,0 +1,18 @@
+{
+  "id": "synclavis.hello",
+  "name": "Hello 插件",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "publisher": "synclavis",
+  "description": "P0 示例：在右侧 Dock 显示当前仓库 id，验证插件加载、视图插槽与共享运行时。",
+  "entry": "dist/index.js",
+  "style": "dist/style.css",
+  "ui": { "isolation": "in-process" },
+  "permissions": ["repo:read", "ui:notify"],
+  "capabilities": [],
+  "contributes": {
+    "views": [
+      { "id": "hello.main", "title": "Hello", "slot": "rightDock", "order": 10 }
+    ]
+  }
+}

@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import { NButton } from 'naive-ui';
+import { Puzzle } from 'lucide-vue-next';
 import OpenRepoButton from './OpenRepoButton.vue';
 import RepoTabItem from './RepoTabItem.vue';
 import BrandLogo from '@/components/common/BrandLogo.vue';
 import ThemeToggle from '@/components/common/ThemeToggle.vue';
 import { useTabsStore } from '@/stores/tabs';
 
-const emit = defineEmits<{ (e: 'open'): void }>();
+const emit = defineEmits<{ (e: 'open'): void; (e: 'plugins'): void }>();
 
 const tabs = useTabsStore();
 
@@ -102,6 +104,9 @@ function resetDrag(): void {
       />
     </div>
     <OpenRepoButton @open="emit('open')" />
+    <n-button quaternary size="small" title="插件" @click="emit('plugins')">
+      <template #icon><Puzzle :size="14" /></template>
+    </n-button>
     <ThemeToggle />
   </div>
 </template>

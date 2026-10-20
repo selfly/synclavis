@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Synclavis</title>
+    <!--
+      外部插件的共享运行时。插件包必须把 vue / naive-ui / @synclavis/plugin-api
+      保留为外部依赖，由这张 import map 指向宿主同一份实例（见《详细设计文档》§6.4.4）。
+      生产构建输出到 plugin-runtime/*.js；开发期由 vite.config.ts 的中间件改写到源码。
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "vue": "/plugin-runtime/vue.js",
+          "naive-ui": "/plugin-runtime/naive-ui.js",
+          "@synclavis/plugin-api": "/plugin-runtime/plugin-api.js"
+        }
+      }
+    </script>
     <!-- 品牌标记与界面 logo 同源，见 src/components/common/BrandLogo.vue -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />

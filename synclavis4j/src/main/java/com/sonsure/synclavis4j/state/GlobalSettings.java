@@ -16,6 +16,7 @@ public class GlobalSettings {
     private Map<String, String> shortcuts = defaultShortcuts();
     private List<RecentRepo> recentRepos = new ArrayList<RecentRepo>();
     private LayoutSettings layout = new LayoutSettings();
+    private PluginSettings plugins = new PluginSettings();
 
     public static Map<String, String> defaultShortcuts() {
         Map<String, String> map = new LinkedHashMap<String, String>();
@@ -55,5 +56,13 @@ public class GlobalSettings {
 
     public void setLayout(LayoutSettings layout) {
         this.layout = layout == null ? new LayoutSettings() : layout;
+    }
+
+    public PluginSettings getPlugins() {
+        return plugins;
+    }
+
+    public void setPlugins(PluginSettings plugins) {
+        this.plugins = plugins == null ? new PluginSettings() : plugins;
     }
 }

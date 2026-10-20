@@ -15,6 +15,9 @@ synclavis:
   state:
     # 可用环境变量 SYNCLAVIS_HOME 覆盖（附录 D / J8）
     dir: "${SYNCLAVIS_HOME:${user.home}/.synclavis}"
+  plugins:
+    # 本地插件目录；可用 SYNCLAVIS_PLUGIN_DIR 单独覆盖（见《详细设计文档》§6.4.1）
+    dir: "${SYNCLAVIS_PLUGIN_DIR:${synclavis.state.dir}/plugins}"
 
 logging:
   level:
