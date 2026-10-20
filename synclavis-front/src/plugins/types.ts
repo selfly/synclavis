@@ -134,6 +134,10 @@ export interface PluginContext {
     repos: {
       activeId(): string | null;
       onDidChangeActive(listener: (repoId: string | null) => void): Disposable;
+      /** 当前已打开的仓库 id 列表（按 Tab 顺序）。 */
+      openIds(): string[];
+      /** 打开/关闭仓库后回调完整 id 列表；用于释放已关闭仓库的插件资源。 */
+      onDidChangeOpen(listener: (repoIds: string[]) => void): Disposable;
     };
     ui: {
       notify(message: string, type?: PluginNotificationType): void;

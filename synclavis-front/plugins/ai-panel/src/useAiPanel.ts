@@ -1,6 +1,6 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import type { SelectOption } from 'naive-ui';
-import type { PluginContext } from '@synclavis/plugin-api';
+import type { Disposable, PluginContext } from '@synclavis/plugin-api';
 import {
   aiApi,
   ApiError,
@@ -88,6 +88,19 @@ export type ChatItem =
 
 export type WsStatus = 'idle' | 'connecting' | 'open' | 'closed';
 
+/** 切换仓库时保留的面板状态；OpenCode 会话本身始终留在后端。 */
+interface RepoSnapshot {
+  sessions: AiSession[];
+  sessionRef: string | null;
+  items: ChatItem[];
+  lastSeq: number;
+  currentTurnId: string | null;
+  busy: boolean;
+  historyTruncated: boolean;
+  promptText: string;
+  error: string | null;
+}
+
 function asString(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
@@ -152,13 +165,15 @@ export function useAiPanel(ctx: PluginContext) {
   let reconnectTimer: number | null = null;
   let pingTimer: number | null = null;
   let reconnectDelay = 1000;
-  let repoTimer: number | null = null;
+  let repoActiveSubscription: Disposable | null = null;
+  let repoOpenSubscription: Disposable | null = null;
   let syncPromise: Promise<void> | null = null;
   let syncSessionRef: string | null = null;
   let disposed = false;
   let localSeq = 0;
   /** 会话切换/关闭时递增，避免上一会话的异步同步结果污染新会话 */
   let sessionEpoch = 0;
+  const snapshots = new Map<string, RepoSnapshot>();
 
   const selectedHarness = computed<HarnessInfo | null>(() => {
     return harnesses.value.find((item) => item.id === selectedHarnessId.value) ?? null;
@@ -947,15 +962,90 @@ export function useAiPanel(ctx: PluginContext) {
     }
   }
 
+  function detachSession(): void {
+    closeSocket();
+    sessionEpoch += 1;
+    syncPromise = null;
+    syncSessionRef = null;
+  }
+
+  function saveSnapshot(): void {
+    const repo = repoId.value;
+    if (!repo || !ctx.services.repos.openIds().includes(repo)) {
+      return;
+    }
+    snapshots.set(repo, {
+      sessions: sessions.value,
+      sessionRef: sessionRef.value,
+      items: items.value,
+      lastSeq: lastSeq.value,
+      currentTurnId: currentTurnId.value,
+      busy: busy.value,
+      historyTruncated: historyTruncated.value,
+      promptText: promptText.value,
+      error: error.value,
+    });
+  }
+
+  function clearCurrentState(): void {
+    sessions.value = [];
+    sessionRef.value = null;
+    items.value = [];
+    lastSeq.value = 0;
+    currentTurnId.value = null;
+    busy.value = false;
+    historyTruncated.value = false;
+    sending.value = false;
+    error.value = null;
+    revision.value += 1;
+  }
+
+  function restoreSnapshot(repo: string): boolean {
+    const snapshot = snapshots.get(repo);
+    if (!snapshot) {
+      return false;
+    }
+    sessions.value = snapshot.sessions;
+    sessionRef.value = snapshot.sessionRef;
+    items.value = snapshot.items;
+    lastSeq.value = snapshot.lastSeq;
+    currentTurnId.value = snapshot.currentTurnId;
+    busy.value = snapshot.busy;
+    historyTruncated.value = snapshot.historyTruncated;
+    promptText.value = snapshot.promptText;
+    error.value = snapshot.error;
+    revision.value += 1;
+    if (snapshot.sessionRef) {
+      connectSocket();
+      void syncEvents();
+      void refreshCurrentSession();
+    }
+    return true;
+  }
+
   function onRepoChanged(): void {
     const next = ctx.services.repos.activeId();
     if (next === repoId.value) {
       return;
     }
+    saveSnapshot();
     repoId.value = next;
-    closeSession();
-    sessions.value = [];
+    detachSession();
+    clearCurrentState();
+    if (!next) {
+      return;
+    }
+    restoreSnapshot(next);
     void refreshSessions();
+  }
+
+  function onReposChanged(openIds: string[]): void {
+    const open = new Set(openIds);
+    for (const repo of Array.from(snapshots.keys())) {
+      if (!open.has(repo)) {
+        snapshots.delete(repo);
+      }
+    }
   }
 
   async function boot(): Promise<void> {
@@ -965,21 +1055,23 @@ export function useAiPanel(ctx: PluginContext) {
     } finally {
       loading.value = false;
     }
-    repoTimer = window.setInterval(onRepoChanged, 1000);
   }
 
   function dispose(): void {
     disposed = true;
-    if (repoTimer !== null) {
-      window.clearInterval(repoTimer);
-      repoTimer = null;
-    }
+    repoActiveSubscription?.dispose();
+    repoActiveSubscription = null;
+    repoOpenSubscription?.dispose();
+    repoOpenSubscription = null;
+    snapshots.clear();
     closeSocket();
     sessions.value = [];
     items.value = [];
   }
 
   onMounted(() => {
+    repoActiveSubscription = ctx.services.repos.onDidChangeActive(() => onRepoChanged());
+    repoOpenSubscription = ctx.services.repos.onDidChangeOpen(onReposChanged);
     void boot();
   });
 

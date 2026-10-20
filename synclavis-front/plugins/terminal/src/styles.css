@@ -90,9 +90,16 @@
   font-size: var(--sl-font-xs);
 }
 
-.terminal-host {
+.terminal-hosts {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
+}
+
+.terminal-host {
+  position: absolute;
+  inset: 0;
   overflow: hidden;
   padding: 3px 6px 4px;
   box-sizing: border-box;

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import type { ITheme } from '@xterm/xterm';
 import type { Disposable, PluginContext } from '@synclavis/plugin-api';
-import { terminalApi, type TerminalSession } from './api';
+import { ApiError, terminalApi, type TerminalSession } from './api';
 
 const props = defineProps<{ context: PluginContext }>();
 
@@ -17,30 +17,50 @@ interface ServerMessage {
   message?: string;
 }
 
-const host = ref<HTMLElement | null>(null);
-const status = ref<TerminalStatus>('idle');
-const errorMessage = ref<string | null>(null);
-const session = ref<TerminalSession | null>(null);
+/** 每个仓库独立的 UI 状态；xterm/socket 等运行时对象不放进响应式系统。 */
+interface RepoState {
+  status: TerminalStatus;
+  errorMessage: string | null;
+  session: TerminalSession | null;
+}
 
-let term: Terminal | null = null;
-let fitAddon: FitAddon | null = null;
-let socket: WebSocket | null = null;
-let repoId: string | null = null;
-let currentRepoId: string | null = null;
-let initialized = false;
-let disposed = false;
-let generation = 0;
-let pendingInput = '';
-let fitFrame = 0;
-let resizeObserver: ResizeObserver | null = null;
-let themeObserver: MutationObserver | null = null;
-let repoSubscription: Disposable | null = null;
+interface RepoRuntime {
+  repoId: string;
+  host: HTMLElement;
+  term: Terminal;
+  fitAddon: FitAddon;
+  socket: WebSocket | null;
+  session: TerminalSession | null;
+  status: TerminalStatus;
+  errorMessage: string | null;
+  generation: number;
+  pendingInput: string;
+  fitFrame: number;
+  resizeObserver: ResizeObserver | null;
+  disposed: boolean;
+}
 
 const MAX_PENDING_INPUT = 64 * 1024;
 const INPUT_CHUNK = 8 * 1024;
 
+const repoOrder = ref<string[]>([]);
+const activeRepoId = ref<string | null>(null);
+const states = reactive<Record<string, RepoState>>({});
+
+const hostRefs = new Map<string, HTMLElement>();
+const runtimes = new Map<string, RepoRuntime>();
+
+let disposed = false;
+let themeObserver: MutationObserver | null = null;
+let repoActiveSubscription: Disposable | null = null;
+let repoOpenSubscription: Disposable | null = null;
+
+const activeState = computed<RepoState | null>(() =>
+  activeRepoId.value ? states[activeRepoId.value] ?? null : null,
+);
+
 const statusText = computed(() => {
-  switch (status.value) {
+  switch (activeState.value?.status) {
     case 'connecting':
       return '连接中…';
     case 'connected':
@@ -50,12 +70,12 @@ const statusText = computed(() => {
     case 'error':
       return '连接失败';
     default:
-      return repoId ? '空闲' : '未打开仓库';
+      return activeRepoId.value ? '空闲' : '未打开仓库';
   }
 });
 
 const shellLabel = computed(() => {
-  const shell = session.value?.shell;
+  const shell = activeState.value?.session?.shell;
   if (!shell) {
     return 'shell';
   }
@@ -63,7 +83,8 @@ const shellLabel = computed(() => {
   return parts[parts.length - 1] || shell;
 });
 
-const cwdLabel = computed(() => session.value?.cwd ?? '');
+const cwdLabel = computed(() => activeState.value?.session?.cwd ?? '');
+const errorMessage = computed(() => activeState.value?.errorMessage ?? null);
 
 function cssRgb(name: string, fallback: string): string {
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -85,11 +106,8 @@ function readTheme(): ITheme {
   };
 }
 
-function createTerminal(): void {
-  if (!host.value) {
-    return;
-  }
-  term = new Terminal({
+function createRuntime(repoId: string, host: HTMLElement): RepoRuntime {
+  const term = new Terminal({
     allowProposedApi: false,
     cursorBlink: true,
     convertEol: false,
@@ -99,100 +117,112 @@ function createTerminal(): void {
     scrollback: 5000,
     theme: readTheme(),
   });
-  fitAddon = new FitAddon();
+  const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
-  term.open(host.value);
-  term.onData((data) => sendInput(data));
-  term.onResize(() => sendResize());
+  term.open(host);
 
-  themeObserver = new MutationObserver(() => {
-    if (term) {
-      term.options.theme = readTheme();
-    }
-  });
-  themeObserver.observe(document.documentElement, {
-    attributes: true,
-    attributeFilter: ['data-theme'],
-  });
+  const runtime: RepoRuntime = {
+    repoId,
+    host,
+    term,
+    fitAddon,
+    socket: null,
+    session: null,
+    status: 'idle',
+    errorMessage: null,
+    generation: 0,
+    pendingInput: '',
+    fitFrame: 0,
+    resizeObserver: null,
+    disposed: false,
+  };
+
+  term.onData((data) => sendInput(runtime, data));
+  term.onResize(() => sendResize(runtime));
 
   if (typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(() => scheduleFit());
-    resizeObserver.observe(host.value);
+    runtime.resizeObserver = new ResizeObserver(() => {
+      if (activeRepoId.value === runtime.repoId) {
+        scheduleFit(runtime);
+      }
+    });
+    runtime.resizeObserver.observe(host);
   }
 
-  scheduleFit();
+  scheduleFit(runtime);
+  return runtime;
 }
 
-function scheduleFit(): void {
-  if (fitFrame !== 0) {
+function scheduleFit(runtime: RepoRuntime): void {
+  if (runtime.fitFrame !== 0 || runtime.disposed) {
     return;
   }
-  fitFrame = requestAnimationFrame(() => {
-    fitFrame = 0;
-    fit();
+  runtime.fitFrame = requestAnimationFrame(() => {
+    runtime.fitFrame = 0;
+    fit(runtime);
   });
 }
 
-function fit(): void {
-  if (!fitAddon || !term) {
+function fit(runtime: RepoRuntime): void {
+  if (runtime.disposed || activeRepoId.value !== runtime.repoId) {
     return;
   }
   try {
-    fitAddon.fit();
+    runtime.fitAddon.fit();
   } catch {
     // 面板折叠/切换时容器可能暂时没有尺寸，下一次 ResizeObserver 会再试
   }
 }
 
-function sendInputChunks(data: string): void {
+function sendInputChunks(runtime: RepoRuntime, data: string): void {
   for (let offset = 0; offset < data.length; offset += INPUT_CHUNK) {
     const chunk = data.slice(offset, offset + INPUT_CHUNK);
-    sendJson({ type: 'input', data: chunk });
+    sendJson(runtime, { type: 'input', data: chunk });
   }
 }
 
-function sendInput(data: string): void {
-  if (!data) {
+function sendInput(runtime: RepoRuntime, data: string): void {
+  if (!data || runtime.disposed) {
     return;
   }
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    sendInputChunks(data);
+  if (runtime.socket && runtime.socket.readyState === WebSocket.OPEN) {
+    sendInputChunks(runtime, data);
     return;
   }
-  if (status.value === 'connecting') {
-    pendingInput += data;
-    if (pendingInput.length > MAX_PENDING_INPUT) {
-      pendingInput = pendingInput.slice(-MAX_PENDING_INPUT);
+  if (runtime.status === 'connecting') {
+    runtime.pendingInput += data;
+    if (runtime.pendingInput.length > MAX_PENDING_INPUT) {
+      runtime.pendingInput = runtime.pendingInput.slice(-MAX_PENDING_INPUT);
     }
   }
 }
 
-function sendResize(): void {
-  if (!term || !socket || socket.readyState !== WebSocket.OPEN) {
+function sendResize(runtime: RepoRuntime): void {
+  if (!runtime.socket || runtime.socket.readyState !== WebSocket.OPEN) {
     return;
   }
-  sendJson({
+  sendJson(runtime, {
     type: 'resize',
-    cols: Math.max(1, Math.min(500, term.cols)),
-    rows: Math.max(1, Math.min(500, term.rows)),
+    cols: Math.max(1, Math.min(500, runtime.term.cols)),
+    rows: Math.max(1, Math.min(500, runtime.term.rows)),
   });
 }
 
-function sendJson(payload: Record<string, unknown>): void {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
+function sendJson(runtime: RepoRuntime, payload: Record<string, unknown>): void {
+  if (!runtime.socket || runtime.socket.readyState !== WebSocket.OPEN) {
     return;
   }
   try {
-    socket.send(JSON.stringify(payload));
+    runtime.socket.send(JSON.stringify(payload));
   } catch {
     // onclose 会统一处理
   }
 }
 
-function closeSocket(): void {
-  const current = socket;
-  socket = null;
-  pendingInput = '';
+function closeSocket(runtime: RepoRuntime): void {
+  const current = runtime.socket;
+  runtime.socket = null;
+  runtime.pendingInput = '';
   if (!current) {
     return;
   }
@@ -207,13 +237,20 @@ function closeSocket(): void {
   }
 }
 
-async function resetSession(deleteRemote: boolean): Promise<void> {
-  generation += 1;
-  closeSocket();
-  const terminalId = session.value?.terminalId;
-  session.value = null;
-  status.value = 'idle';
-  errorMessage.value = null;
+function setRuntimeState(runtime: RepoRuntime, patch: Partial<RepoState>): void {
+  Object.assign(runtime, patch);
+  const state = states[runtime.repoId];
+  if (state) {
+    Object.assign(state, patch);
+  }
+}
+
+async function resetSession(runtime: RepoRuntime, deleteRemote: boolean): Promise<void> {
+  runtime.generation += 1;
+  closeSocket(runtime);
+  const terminalId = runtime.session?.terminalId;
+  runtime.session = null;
+  setRuntimeState(runtime, { status: 'idle', errorMessage: null, session: null });
   if (terminalId && deleteRemote) {
     void terminalApi.delete(terminalId).catch(() => {
       // 进程可能已自然退出，DELETE 404 可忽略
@@ -221,62 +258,63 @@ async function resetSession(deleteRemote: boolean): Promise<void> {
   }
 }
 
-async function startSession(): Promise<void> {
-  if (disposed || !term) {
-    return;
-  }
-  if (!currentRepoId) {
-    term.reset();
-    term.writeln('请先打开一个仓库。');
-    status.value = 'idle';
+async function startSession(runtime: RepoRuntime): Promise<void> {
+  if (disposed || runtime.disposed || !runtime.host.isConnected) {
     return;
   }
 
-  term.reset();
-  status.value = 'connecting';
-  errorMessage.value = null;
-  fit();
-  const gen = generation;
-  const repo = currentRepoId;
+  const gen = ++runtime.generation;
+  runtime.term.reset();
+  setRuntimeState(runtime, { status: 'connecting', errorMessage: null });
+  fit(runtime);
   try {
-    const created = await terminalApi.create(repo, term.cols || 80, term.rows || 24);
-    if (disposed || gen !== generation || currentRepoId !== repo) {
+    const created = await terminalApi.create(
+      runtime.repoId,
+      runtime.term.cols || 80,
+      runtime.term.rows || 24,
+    );
+    if (disposed || runtime.disposed || gen !== runtime.generation) {
       void terminalApi.delete(created.terminalId).catch(() => {});
       return;
     }
-    session.value = created;
-    connect(created.terminalId, gen, repo);
+    runtime.session = created;
+    setRuntimeState(runtime, { session: created });
+    connect(runtime, created.terminalId, gen);
   } catch (error) {
-    if (disposed || gen !== generation) {
+    if (disposed || runtime.disposed || gen !== runtime.generation) {
       return;
     }
-    status.value = 'error';
-    errorMessage.value = error instanceof Error ? error.message : String(error);
-    term.writeln(`\x1b[31m${errorMessage.value}\x1b[0m`);
+    const hint =
+      error instanceof ApiError && error.code === 'TOO_MANY_TERMINALS'
+        ? '（终端数量已达上限，请关闭不需要的仓库标签）'
+        : '';
+    const message = `${error instanceof Error ? error.message : String(error)}${hint}`;
+    setRuntimeState(runtime, { status: 'error', errorMessage: message });
+    runtime.term.writeln(`\x1b[31m${message}\x1b[0m`);
   }
 }
 
-function connect(terminalId: string, gen: number, repo: string): void {
+function connect(runtime: RepoRuntime, terminalId: string, gen: number): void {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const url = `${protocol}//${window.location.host}/ws/terminal/sessions/${encodeURIComponent(terminalId)}`;
   const ws = new WebSocket(url);
-  socket = ws;
+  runtime.socket = ws;
 
   ws.onopen = () => {
-    if (socket !== ws || gen !== generation) {
+    if (runtime.socket !== ws || gen !== runtime.generation) {
       return;
     }
-    status.value = 'connected';
-    if (pendingInput) {
-      const buffered = pendingInput;
-      pendingInput = '';
-      sendInputChunks(buffered);
+    setRuntimeState(runtime, { status: 'connected' });
+    if (runtime.pendingInput) {
+      const buffered = runtime.pendingInput;
+      runtime.pendingInput = '';
+      sendInputChunks(runtime, buffered);
     }
-    sendResize();
+    sendResize(runtime);
   };
 
   ws.onmessage = (event) => {
-    if (socket !== ws || gen !== generation) {
+    if (runtime.socket !== ws || gen !== runtime.generation) {
       return;
     }
     let message: ServerMessage;
@@ -286,41 +324,53 @@ function connect(terminalId: string, gen: number, repo: string): void {
       return;
     }
     if (message.type === 'output') {
-      term?.write(message.data ?? '');
+      runtime.term.write(message.data ?? '');
       return;
     }
     if (message.type === 'exit') {
       const code = typeof message.code === 'number' ? message.code : -1;
-      status.value = 'exited';
-      session.value = null;
-      term?.write(`\r\n\x1b[90m[进程已退出，退出码 ${code}]\x1b[0m\r\n`);
+      setRuntimeState(runtime, { status: 'exited', session: null });
+      runtime.session = null;
+      runtime.term.write(`\r\n\x1b[90m[进程已退出，退出码 ${code}]\x1b[0m\r\n`);
       return;
     }
     if (message.type === 'error') {
-      status.value = 'error';
-      errorMessage.value = message.message ?? '终端错误';
-      term?.write(`\r\n\x1b[31m[${errorMessage.value}]\x1b[0m\r\n`);
+      const text = message.message ?? '终端错误';
+      setRuntimeState(runtime, { status: 'error', errorMessage: text });
+      runtime.term.write(`\r\n\x1b[31m[${text}]\x1b[0m\r\n`);
     }
   };
 
   ws.onerror = () => {
-    if (socket !== ws || gen !== generation) {
+    if (runtime.socket !== ws || gen !== runtime.generation) {
       return;
     }
-    status.value = 'error';
-    errorMessage.value = `终端连接失败（${repo}）`;
+    setRuntimeState(runtime, {
+      status: 'error',
+      errorMessage: `终端连接失败（${runtime.repoId}）`,
+    });
   };
 
   ws.onclose = () => {
-    if (socket !== ws) {
+    if (runtime.socket !== ws) {
       return;
     }
-    socket = null;
-    if (gen === generation && (status.value === 'connected' || status.value === 'connecting')) {
-      status.value = 'error';
-      errorMessage.value = '终端连接已断开';
+    runtime.socket = null;
+    if (
+      gen === runtime.generation &&
+      (runtime.status === 'connected' || runtime.status === 'connecting')
+    ) {
+      setRuntimeState(runtime, { status: 'error', errorMessage: '终端连接已断开' });
     }
   };
+}
+
+function setHost(repoId: string, el: unknown): void {
+  if (el instanceof HTMLElement) {
+    hostRefs.set(repoId, el);
+    return;
+  }
+  hostRefs.delete(repoId);
 }
 
 async function switchRepo(next: string | null): Promise<void> {
@@ -328,53 +378,130 @@ async function switchRepo(next: string | null): Promise<void> {
     return;
   }
   const normalized = next || null;
-  if (initialized && normalized === currentRepoId) {
+  if (normalized === activeRepoId.value && (!normalized || runtimes.has(normalized))) {
     return;
   }
-  initialized = true;
-  currentRepoId = normalized;
-  repoId = normalized;
-  await resetSession(true);
-  await startSession();
+  activeRepoId.value = normalized;
+  if (!normalized) {
+    return;
+  }
+
+  if (!repoOrder.value.includes(normalized)) {
+    repoOrder.value = [...repoOrder.value, normalized];
+  }
+  await nextTick();
+  if (disposed || activeRepoId.value !== normalized) {
+    return;
+  }
+
+  const host = hostRefs.get(normalized);
+  if (!host) {
+    return;
+  }
+
+  const existing = runtimes.get(normalized);
+  if (existing) {
+    existing.term.options.theme = readTheme();
+    scheduleFit(existing);
+    existing.term.refresh(0, Math.max(0, existing.term.rows - 1));
+    return;
+  }
+
+  states[normalized] = { status: 'idle', errorMessage: null, session: null };
+  const runtime = createRuntime(normalized, host);
+  runtimes.set(normalized, runtime);
+  void startSession(runtime);
+}
+
+function onReposChanged(openIds: string[]): void {
+  const open = new Set(openIds);
+  for (const repoId of Array.from(runtimes.keys())) {
+    if (!open.has(repoId)) {
+      disposeRuntime(repoId, true);
+    }
+  }
+  repoOrder.value = repoOrder.value.filter((repoId) => open.has(repoId));
+}
+
+function disposeRuntime(repoId: string, deleteRemote: boolean): void {
+  const runtime = runtimes.get(repoId);
+  runtimes.delete(repoId);
+  delete states[repoId];
+  hostRefs.delete(repoId);
+  if (!runtime) {
+    return;
+  }
+  runtime.disposed = true;
+  runtime.generation += 1;
+  if (runtime.fitFrame !== 0) {
+    cancelAnimationFrame(runtime.fitFrame);
+    runtime.fitFrame = 0;
+  }
+  runtime.resizeObserver?.disconnect();
+  runtime.resizeObserver = null;
+
+  closeSocket(runtime);
+  const terminalId = runtime.session?.terminalId;
+  runtime.session = null;
+  if (terminalId && deleteRemote) {
+    void terminalApi.delete(terminalId).catch(() => {
+      // 进程可能已自然退出，DELETE 404 可忽略
+    });
+  }
+  runtime.term.dispose();
 }
 
 async function restart(): Promise<void> {
-  if (!currentRepoId) {
+  const runtime = activeRepoId.value ? runtimes.get(activeRepoId.value) : null;
+  if (!runtime) {
     return;
   }
-  await resetSession(true);
-  await startSession();
+  await resetSession(runtime, true);
+  await startSession(runtime);
 }
 
 function clear(): void {
-  term?.clear();
+  const runtime = activeRepoId.value ? runtimes.get(activeRepoId.value) : null;
+  runtime?.term.clear();
 }
 
 onMounted(async () => {
   await nextTick();
-  createTerminal();
-  repoSubscription = props.context.services.repos.onDidChangeActive((next) => {
+  themeObserver = new MutationObserver(() => {
+    const theme = readTheme();
+    for (const runtime of runtimes.values()) {
+      runtime.term.options.theme = theme;
+    }
+  });
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  });
+
+  repoActiveSubscription = props.context.services.repos.onDidChangeActive((next) => {
     void switchRepo(next);
   });
+  repoOpenSubscription = props.context.services.repos.onDidChangeOpen((ids) => {
+    onReposChanged(ids);
+  });
+
+  onReposChanged(props.context.services.repos.openIds());
   await switchRepo(props.context.services.repos.activeId());
 });
 
 onBeforeUnmount(() => {
   disposed = true;
-  repoSubscription?.dispose();
-  repoSubscription = null;
-  if (fitFrame !== 0) {
-    cancelAnimationFrame(fitFrame);
-    fitFrame = 0;
-  }
-  resizeObserver?.disconnect();
-  resizeObserver = null;
+  repoActiveSubscription?.dispose();
+  repoActiveSubscription = null;
+  repoOpenSubscription?.dispose();
+  repoOpenSubscription = null;
   themeObserver?.disconnect();
   themeObserver = null;
-  void resetSession(true);
-  term?.dispose();
-  term = null;
-  fitAddon = null;
+  for (const repoId of Array.from(runtimes.keys())) {
+    disposeRuntime(repoId, true);
+  }
+  repoOrder.value = [];
+  hostRefs.clear();
 });
 </script>
 
@@ -384,8 +511,10 @@ onBeforeUnmount(() => {
       <span class="terminal-title">终端</span>
       <span class="terminal-meta" :title="cwdLabel">{{ shellLabel }}</span>
       <span class="terminal-meta terminal-cwd" :title="cwdLabel">{{ cwdLabel }}</span>
-      <span class="terminal-status" :data-status="status">{{ statusText }}</span>
-      <button type="button" class="terminal-button" :disabled="!repoId" @click="restart">
+      <span class="terminal-status" :data-status="activeState?.status ?? 'idle'">
+        {{ statusText }}
+      </span>
+      <button type="button" class="terminal-button" :disabled="!activeRepoId" @click="restart">
         重启
       </button>
       <button type="button" class="terminal-button" @click="clear">清空</button>
@@ -393,6 +522,15 @@ onBeforeUnmount(() => {
     <p v-if="errorMessage" class="terminal-error" data-testid="terminal-error">
       {{ errorMessage }}
     </p>
-    <div ref="host" class="terminal-host" data-testid="terminal-host"></div>
+    <div class="terminal-hosts">
+      <div
+        v-for="repo in repoOrder"
+        :key="repo"
+        :ref="(el) => setHost(repo, el)"
+        v-show="repo === activeRepoId"
+        class="terminal-host"
+        data-testid="terminal-host"
+      ></div>
+    </div>
   </div>
 </template>

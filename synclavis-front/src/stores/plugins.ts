@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { pluginsApi } from '@/api/plugins';
 import { pluginRegistry } from '@/plugins/registry';
+import { RepoEventHub } from '@/plugins/repoEvents';
 import type {
   Disposable,
   PluginContext,
@@ -20,8 +21,7 @@ const BOTTOM_DOCK_TAB_KEY = 'synclavis.plugins.bottomDockTab';
 
 let notifier: (message: string, type: PluginNotificationType) => void = () => {};
 let registrySubscribed = false;
-const repoChangeListeners = new Set<(repoId: string | null) => void>();
-let repoSubscriptionReady = false;
+const repoEvents = new RepoEventHub(() => useTabsStore());
 
 interface ActivePlugin {
   info: PluginInfo;
@@ -73,33 +73,7 @@ function writeLocal(key: string, value: string): void {
   }
 }
 
-/**
- * 仓库切换通知：插件通过 `services.repos.onDidChangeActive` 订阅。
- *
- * <p>只在第一次订阅时挂 Pinia `$subscribe`，避免每个插件/每次激活重复注册。</p>
- */
-function ensureRepoSubscription(): void {
-  if (repoSubscriptionReady) {
-    return;
-  }
-  repoSubscriptionReady = true;
-  const tabs = useTabsStore();
-  let lastActiveId = tabs.activeId;
-  tabs.$subscribe(() => {
-    const nextActiveId = tabs.activeId;
-    if (nextActiveId === lastActiveId) {
-      return;
-    }
-    lastActiveId = nextActiveId;
-    for (const listener of Array.from(repoChangeListeners)) {
-      try {
-        listener(nextActiveId);
-      } catch (error) {
-        console.warn('插件仓库切换回调失败', error);
-      }
-    }
-  });
-}
+/** 仓库生命周期通知：插件上下文通过 {@link RepoEventHub} 订阅。 */
 
 function appendStyle(info: PluginInfo): HTMLLinkElement | null {
   const style = info.manifest?.style;
@@ -297,16 +271,16 @@ export const usePluginsStore = defineStore('plugins', {
           services: {
             repos: {
               activeId: () => useTabsStore().activeId,
+              openIds: () => repoEvents.openIds(),
               onDidChangeActive: (listener) => {
-                ensureRepoSubscription();
-                repoChangeListeners.add(listener);
-                const disposable: Disposable = {
-                  dispose: () => {
-                    repoChangeListeners.delete(listener);
-                  },
-                };
-                disposables.push(disposable);
-                return disposable;
+                const subscription = repoEvents.onDidChangeActive(listener);
+                disposables.push(subscription);
+                return subscription;
+              },
+              onDidChangeOpen: (listener) => {
+                const subscription = repoEvents.onDidChangeOpen(listener);
+                disposables.push(subscription);
+                return subscription;
               },
             },
             ui: {
