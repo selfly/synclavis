@@ -29,6 +29,23 @@
         <jgit.version>5.13.0.202109080827-r</jgit.version>
     </properties>
 
+    <repositories>
+        <!--
+          pty4j 的 jtermios 依赖（JetBrains 维护的 purejavacomm）未发布到 Maven Central，
+          官方坐标只在该仓库提供；它是 pty4j 运行必需项。
+        -->
+        <repository>
+            <id>jetbrains-intellij-dependencies</id>
+            <url>https://packages.jetbrains.team/maven/p/ij/intellij-dependencies</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>false</enabled>
+            </snapshots>
+        </repository>
+    </repositories>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -50,6 +67,30 @@
             <groupId>org.eclipse.jgit</groupId>
             <artifactId>org.eclipse.jgit.ssh.apache</artifactId>
             <version>${jgit.version}</version>
+        </dependency>
+
+        <!--
+          交互式终端 PTY。0.12.10-jdk8 是最后一个 Java 8 字节码版本；
+          0.12.12+ 均为 Java 11（class version 55），不能升级。
+          其 jtermios 依赖来自 JetBrains 仓库（见上方 repositories），
+          且必须使用 JetBrains 维护的版本：Central 上的 purejavacomm 1.0.2
+          仍调用 JNA 4 的 Native.setPreserveLastError，与 JNA 5 不兼容。
+        -->
+        <dependency>
+            <groupId>org.jetbrains.pty4j</groupId>
+            <artifactId>pty4j</artifactId>
+            <version>0.12.10-jdk8</version>
+        </dependency>
+        <!-- pty4j 的 JNA 传递版本需要显式锁定；5.12.1 支持 macOS arm64 -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.12.1</version>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
+            <version>5.12.1</version>
         </dependency>
 
         <dependency>

@@ -14,9 +14,14 @@ import type {
 import { useTabsStore } from '@/stores/tabs';
 
 const RIGHT_DOCK_OPEN_KEY = 'synclavis.plugins.rightDockOpen';
+const BOTTOM_DOCK_OPEN_KEY = 'synclavis.plugins.bottomDockOpen';
+const BOTTOM_DOCK_COLLAPSED_KEY = 'synclavis.plugins.bottomDockCollapsed';
+const BOTTOM_DOCK_TAB_KEY = 'synclavis.plugins.bottomDockTab';
 
 let notifier: (message: string, type: PluginNotificationType) => void = () => {};
 let registrySubscribed = false;
+const repoChangeListeners = new Set<(repoId: string | null) => void>();
+let repoSubscriptionReady = false;
 
 interface ActivePlugin {
   info: PluginInfo;
@@ -41,6 +46,59 @@ function readRightDockOpen(): boolean {
   } catch {
     return true;
   }
+}
+
+function readBoolean(key: string, fallback: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? fallback : raw !== 'false';
+  } catch {
+    return fallback;
+  }
+}
+
+function readString(key: string, fallback: string): string {
+  try {
+    return localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLocal(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // 缓存失败不影响功能
+  }
+}
+
+/**
+ * 仓库切换通知：插件通过 `services.repos.onDidChangeActive` 订阅。
+ *
+ * <p>只在第一次订阅时挂 Pinia `$subscribe`，避免每个插件/每次激活重复注册。</p>
+ */
+function ensureRepoSubscription(): void {
+  if (repoSubscriptionReady) {
+    return;
+  }
+  repoSubscriptionReady = true;
+  const tabs = useTabsStore();
+  let lastActiveId = tabs.activeId;
+  tabs.$subscribe(() => {
+    const nextActiveId = tabs.activeId;
+    if (nextActiveId === lastActiveId) {
+      return;
+    }
+    lastActiveId = nextActiveId;
+    for (const listener of Array.from(repoChangeListeners)) {
+      try {
+        listener(nextActiveId);
+      } catch (error) {
+        console.warn('插件仓库切换回调失败', error);
+      }
+    }
+  });
 }
 
 function appendStyle(info: PluginInfo): HTMLLinkElement | null {
@@ -81,6 +139,9 @@ export const usePluginsStore = defineStore('plugins', {
     registryVersion: 0,
     activeIds: [] as string[],
     rightDockOpen: readRightDockOpen(),
+    bottomDockOpen: readBoolean(BOTTOM_DOCK_OPEN_KEY, true),
+    bottomDockCollapsed: readBoolean(BOTTOM_DOCK_COLLAPSED_KEY, true),
+    bottomDockTab: readString(BOTTOM_DOCK_TAB_KEY, 'log'),
   }),
 
   getters: {
@@ -102,6 +163,16 @@ export const usePluginsStore = defineStore('plugins', {
         const activeKey = this.activeViews[slot];
         return views.find((view) => view.key === activeKey) ?? views[0] ?? null;
       };
+    },
+
+    /** 底部面板实际选中的标签；插件被停用后自动回落到操作日志。 */
+    bottomDockTabResolved(state): string {
+      if (state.bottomDockTab === 'log') {
+        return 'log';
+      }
+      return this.viewsFor('bottomDock').some((view) => view.key === state.bottomDockTab)
+        ? state.bottomDockTab
+        : 'log';
     },
   },
 
@@ -226,6 +297,17 @@ export const usePluginsStore = defineStore('plugins', {
           services: {
             repos: {
               activeId: () => useTabsStore().activeId,
+              onDidChangeActive: (listener) => {
+                ensureRepoSubscription();
+                repoChangeListeners.add(listener);
+                const disposable: Disposable = {
+                  dispose: () => {
+                    repoChangeListeners.delete(listener);
+                  },
+                };
+                disposables.push(disposable);
+                return disposable;
+              },
             },
             ui: {
               notify: (message, type = 'info') => notifier(message, type),
@@ -321,10 +403,32 @@ export const usePluginsStore = defineStore('plugins', {
 
     setRightDockOpen(open: boolean): void {
       this.rightDockOpen = open;
-      try {
-        localStorage.setItem(RIGHT_DOCK_OPEN_KEY, String(open));
-      } catch {
-        // 缓存失败不影响功能
+      writeLocal(RIGHT_DOCK_OPEN_KEY, String(open));
+    },
+
+    setBottomDockOpen(open: boolean): void {
+      this.bottomDockOpen = open;
+      writeLocal(BOTTOM_DOCK_OPEN_KEY, String(open));
+    },
+
+    setBottomDockCollapsed(collapsed: boolean): void {
+      this.bottomDockCollapsed = collapsed;
+      writeLocal(BOTTOM_DOCK_COLLAPSED_KEY, String(collapsed));
+    },
+
+    setBottomDockTab(key: string): void {
+      this.bottomDockTab = key;
+      writeLocal(BOTTOM_DOCK_TAB_KEY, key);
+      if (key !== 'log') {
+        this.setActiveView('bottomDock', key);
+      }
+    },
+
+    openBottomDock(key?: string): void {
+      this.setBottomDockOpen(true);
+      this.setBottomDockCollapsed(false);
+      if (key) {
+        this.setBottomDockTab(key);
       }
     },
   },

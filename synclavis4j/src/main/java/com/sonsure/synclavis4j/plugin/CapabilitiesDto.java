@@ -9,6 +9,7 @@ public class CapabilitiesDto {
 
     private Plugins plugins = new Plugins();
     private Ai ai = new Ai();
+    private Terminal terminal = new Terminal();
 
     public Plugins getPlugins() {
         return plugins;
@@ -24,6 +25,14 @@ public class CapabilitiesDto {
 
     public void setAi(Ai ai) {
         this.ai = ai == null ? new Ai() : ai;
+    }
+
+    public Terminal getTerminal() {
+        return terminal;
+    }
+
+    public void setTerminal(Terminal terminal) {
+        this.terminal = terminal == null ? new Terminal() : terminal;
     }
 
     public static class Plugins {
@@ -58,7 +67,6 @@ public class CapabilitiesDto {
 
     public static class Ai {
         private boolean panel;
-        private boolean terminal;
 
         public boolean isPanel() {
             return panel;
@@ -67,13 +75,17 @@ public class CapabilitiesDto {
         public void setPanel(boolean panel) {
             this.panel = panel;
         }
+    }
 
-        public boolean isTerminal() {
-            return terminal;
+    public static class Terminal {
+        private boolean panel;
+
+        public boolean isPanel() {
+            return panel;
         }
 
-        public void setTerminal(boolean terminal) {
-            this.terminal = terminal;
+        public void setPanel(boolean panel) {
+            this.panel = panel;
         }
     }
 }

@@ -1,0 +1,28 @@
+{
+  "id": "synclavis.terminal",
+  "name": "终端",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "publisher": "synclavis",
+  "description": "在底部面板中使用当前仓库目录的交互式终端（PTY）。",
+  "entry": "dist/index.js",
+  "style": "dist/style.css",
+  "permissions": ["repo:read", "terminal"],
+  "capabilities": ["terminal.panel"],
+  "ui": {
+    "isolation": "in-process"
+  },
+  "engines": {
+    "synclavis": ">=0.1.0"
+  },
+  "contributes": {
+    "views": [
+      {
+        "id": "terminal.main",
+        "title": "终端",
+        "slot": "bottomDock",
+        "order": 10
+      }
+    ]
+  }
+}

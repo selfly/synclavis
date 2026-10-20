@@ -10,7 +10,7 @@ import NewBranchDialog from '@/components/dialogs/NewBranchDialog.vue';
 import OpenRepoDialog from '@/components/dialogs/OpenRepoDialog.vue';
 import PushPreviewDialog from '@/components/dialogs/PushPreviewDialog.vue';
 import RepoSettingsDialog from '@/components/dialogs/RepoSettingsDialog.vue';
-import OperationLogPanel from '@/components/log/OperationLogPanel.vue';
+import BottomPanel from '@/components/shell/BottomPanel.vue';
 import PluginsDialog from '@/components/plugins/PluginsDialog.vue';
 import PluginSlot from '@/components/plugins/PluginSlot.vue';
 import RepoTabBar from '@/components/tabs/RepoTabBar.vue';
@@ -251,7 +251,7 @@ onMounted(async () => {
       <div v-else-if="bootError" class="flex flex-1 flex-col items-center justify-center gap-2">
         <p class="text-sm text-danger">无法连接后端</p>
         <p class="max-w-[420px] text-center text-xs text-text-dim">{{ bootError }}</p>
-        <p class="text-xs text-text-dim">请确认 synclavis4j 已启动（默认 127.0.0.1:18080）</p>
+        <p class="text-xs text-text-dim">请确认后端服务已启动（默认 127.0.0.1:18080）</p>
       </div>
 
       <div
@@ -285,8 +285,8 @@ onMounted(async () => {
       />
     </main>
 
-    <OperationLogPanel
-      v-if="tabs.activeId"
+    <BottomPanel
+      v-if="tabs.activeId && plugins.bottomDockOpen"
       :repo-id="tabs.activeId"
       :height="logPanelHeight"
       :max-height="logPanelMax"

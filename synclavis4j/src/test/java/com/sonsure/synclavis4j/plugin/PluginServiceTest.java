@@ -65,9 +65,30 @@ class PluginServiceTest {
 
         assertTrue(pluginService.list().getPlugins().get(0).isEnabled());
         assertTrue(pluginService.capabilities().getAi().isPanel());
-        assertFalse(pluginService.capabilities().getAi().isTerminal());
+        assertFalse(pluginService.capabilities().getTerminal().isPanel());
         assertTrue(stateStore.load().getGlobalSettings().getPlugins()
                 .getEnabled().contains("acme.panel"));
+    }
+
+    @Test
+    void terminalCapabilityAndPermissionFollowEnabledPlugin() throws IOException {
+        writePlugin("acme.terminal",
+                manifest("acme.terminal", "[\"repo:read\",\"terminal\"]", "[\"terminal.panel\"]"));
+
+        assertFalse(pluginService.hasEnabledPermission("terminal"));
+        assertFalse(pluginService.hasEnabledCapability("terminal.panel"));
+
+        pluginService.setEnabled("acme.terminal", true);
+
+        assertTrue(pluginService.hasEnabledPermission("terminal"));
+        assertTrue(pluginService.hasEnabledCapability("terminal.panel"));
+        assertTrue(pluginService.capabilities().getTerminal().isPanel());
+
+        pluginService.setEnabled("acme.terminal", false);
+
+        assertFalse(pluginService.hasEnabledPermission("terminal"));
+        assertFalse(pluginService.hasEnabledCapability("terminal.panel"));
+        assertFalse(pluginService.capabilities().getTerminal().isPanel());
     }
 
     @Test

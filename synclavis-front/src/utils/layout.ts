@@ -9,7 +9,7 @@
 export interface LayoutSettings {
   /** 底部提交区（暂存文件 + 提交信息 + Commit）高度 */
   commitPanelHeight: number;
-  /** 底部操作日志面板内容高度 */
+  /** 底部面板（操作日志 + bottomDock 插件标签）内容高度 */
   logPanelHeight: number;
   /** 左侧边栏宽度 */
   sidebarWidth: number;

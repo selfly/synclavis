@@ -38,13 +38,18 @@ public enum ErrorCode {
     NOT_FOUND(404),
     HARNESS_NOT_FOUND(404),
 
-    // 409 —— AI 会话
+    // 409 —— AI 会话 / 终端
     AI_BUSY(409),
+    TERMINAL_BUSY(409),
+
+    // 429 —— 终端数量上限
+    TOO_MANY_TERMINALS(429),
 
     // 502 / 503 / 500
     REMOTE_ERROR(502),
     HARNESS_ERROR(502),
     HARNESS_UNAVAILABLE(503),
+    TERMINAL_UNAVAILABLE(503),
     INTERNAL(500);
 
     private final int httpStatus;

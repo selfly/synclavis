@@ -147,11 +147,37 @@ public class PluginService {
             if (capabilities.contains("ai.panel")) {
                 dto.getAi().setPanel(true);
             }
-            if (capabilities.contains("ai.terminal")) {
-                dto.getAi().setTerminal(true);
+            if (capabilities.contains("terminal.panel")) {
+                dto.getTerminal().setPanel(true);
             }
         }
         return dto;
+    }
+
+    /** 是否存在已启用且声明该权限的插件；终端接口的授权门槛。 */
+    public boolean hasEnabledPermission(String permission) {
+        if (permission == null) {
+            return false;
+        }
+        for (ScannedPlugin plugin : current().values()) {
+            if (plugin.info.isEnabled() && plugin.info.getPermissions().contains(permission)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 是否存在已启用且声明该能力的插件。 */
+    public boolean hasEnabledCapability(String capability) {
+        if (capability == null) {
+            return false;
+        }
+        for (ScannedPlugin plugin : current().values()) {
+            if (plugin.info.isEnabled() && plugin.info.getCapabilities().contains(capability)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 保存插槽选择；未知插槽也允许，前端可自行扩展底部/活动栏。 */

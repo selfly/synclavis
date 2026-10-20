@@ -1,0 +1,17 @@
+{
+  "name": "@synclavis/plugin-terminal",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "synclavis 终端插件",
+  "scripts": {
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0"
+  },
+  "peerDependencies": {
+    "vue": "^3.4.21"
+  }
+}

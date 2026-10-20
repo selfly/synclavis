@@ -3,6 +3,7 @@ package com.sonsure.synclavis4j.plugin;
 import com.sonsure.synclavis4j.shared.dto.ApiResponse;
 import com.sonsure.synclavis4j.shared.exception.ErrorCode;
 import com.sonsure.synclavis4j.shared.exception.GitOperationException;
+import com.sonsure.synclavis4j.terminal.TerminalSessionService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,9 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class PluginController {
 
     private final PluginService pluginService;
+    private final TerminalSessionService terminals;
 
-    public PluginController(PluginService pluginService) {
+    public PluginController(PluginService pluginService, TerminalSessionService terminals) {
         this.pluginService = pluginService;
+        this.terminals = terminals;
     }
 
     @GetMapping
@@ -31,7 +34,9 @@ public class PluginController {
 
     @PostMapping("/reload")
     public ApiResponse<PluginListDto> reload() {
-        return ApiResponse.ok(pluginService.reload());
+        PluginListDto result = pluginService.reload();
+        terminals.revalidateAccess();
+        return ApiResponse.ok(result);
     }
 
     @PutMapping("/{id}/enabled")
@@ -40,7 +45,9 @@ public class PluginController {
         if (request == null || request.getEnabled() == null) {
             throw new GitOperationException(ErrorCode.INVALID_PARAM, "缺少 enabled 参数");
         }
-        return ApiResponse.ok(pluginService.setEnabled(id, request.getEnabled()));
+        PluginInfo result = pluginService.setEnabled(id, request.getEnabled());
+        terminals.revalidateAccess();
+        return ApiResponse.ok(result);
     }
 
     @PutMapping("/developer-mode")

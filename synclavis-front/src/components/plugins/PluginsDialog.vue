@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-import { NButton, NModal, NSwitch, NTag, useMessage } from 'naive-ui';
+import { NButton, NModal, NSwitch, NTag, useDialog, useMessage } from 'naive-ui';
 import { Puzzle, RefreshCw, ShieldAlert } from 'lucide-vue-next';
 import { usePluginsStore } from '@/stores/plugins';
 import type { PluginInfo } from '@/plugins/types';
@@ -10,6 +10,7 @@ const emit = defineEmits<{ (e: 'update:show', value: boolean): void }>();
 
 const plugins = usePluginsStore();
 const message = useMessage();
+const dialog = useDialog();
 const busyId = ref<string | null>(null);
 const devBusy = ref(false);
 const reloading = ref(false);
@@ -37,6 +38,25 @@ async function togglePlugin(item: PluginInfo, enabled: boolean): Promise<void> {
   } finally {
     busyId.value = null;
   }
+}
+
+/** 终端是高风险权限：启用前必须明确告知用户它等价于本机交互式 shell。 */
+function requestToggle(item: PluginInfo, enabled: boolean): void {
+  if (!enabled || !item.permissions.includes('terminal')) {
+    void togglePlugin(item, enabled);
+    return;
+  }
+  dialog.warning({
+    title: '启用高风险终端权限？',
+    content:
+      `${item.name} 将获得本机交互式 shell 能力：可以执行任意命令、读取文件，` +
+      '并且在终端内切换到任意目录。请只启用你信任的插件。',
+    positiveText: '仍要启用',
+    negativeText: '取消',
+    onPositiveClick: () => {
+      void togglePlugin(item, true);
+    },
+  });
 }
 
 async function toggleDeveloperMode(enabled: boolean): Promise<void> {
@@ -163,6 +183,9 @@ function openRightDock(item: PluginInfo): void {
               <p v-if="item.permissions.length > 0" class="mt-1 text-xxs text-text-dim">
                 权限：{{ item.permissions.join('、') }}
               </p>
+              <p v-if="item.permissions.includes('terminal')" class="mt-1 text-xxs text-warn">
+                高风险：终端可执行任意命令并访问本机文件。
+              </p>
               <p
                 v-if="item.error || plugins.runtimeErrors[item.id]"
                 class="mt-1 rounded bg-danger/10 px-2 py-1 text-xxs text-danger"
@@ -188,7 +211,7 @@ function openRightDock(item: PluginInfo): void {
                 :disabled="!item.compatible || busyId === item.id || !item.manifest"
                 :loading="busyId === item.id"
                 data-testid="plugin-enabled"
-                @update:value="togglePlugin(item, $event)"
+                @update:value="requestToggle(item, $event)"
               />
             </div>
           </div>

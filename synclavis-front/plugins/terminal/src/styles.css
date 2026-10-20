@@ -1,0 +1,103 @@
+/* 终端插件样式：只使用宿主 CSS token，自动跟随深浅主题。 */
+.terminal-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: rgb(var(--sl-bg-rgb));
+  color: rgb(var(--sl-text-rgb));
+  box-sizing: border-box;
+}
+
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 8px;
+  flex: 0 0 auto;
+  border-bottom: 1px solid rgb(var(--sl-border-rgb));
+  font-size: var(--sl-font-xs);
+  color: rgb(var(--sl-text-dim-rgb));
+}
+
+.terminal-title {
+  color: rgb(var(--sl-text-rgb));
+  font-weight: 600;
+}
+
+.terminal-meta {
+  min-width: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-cwd {
+  flex: 1 1 auto;
+  max-width: none;
+  direction: rtl;
+  text-align: left;
+}
+
+.terminal-status {
+  flex: 0 0 auto;
+}
+
+.terminal-status[data-status='connected'] {
+  color: rgb(var(--sl-success-rgb));
+}
+
+.terminal-status[data-status='connecting'] {
+  color: rgb(var(--sl-accent-rgb));
+}
+
+.terminal-status[data-status='error'],
+.terminal-status[data-status='exited'] {
+  color: rgb(var(--sl-warn-rgb));
+}
+
+.terminal-button {
+  flex: 0 0 auto;
+  border: 1px solid rgb(var(--sl-border-rgb));
+  border-radius: var(--sl-radius);
+  background: transparent;
+  color: rgb(var(--sl-text-rgb));
+  font-size: var(--sl-font-xs);
+  line-height: 16px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+
+.terminal-button:hover:not(:disabled) {
+  background: rgb(var(--sl-bg-hover-rgb));
+}
+
+.terminal-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.terminal-error {
+  margin: 4px 8px 0;
+  flex: 0 0 auto;
+  padding: 4px 6px;
+  border-radius: var(--sl-radius);
+  background: rgb(var(--sl-danger-rgb) / 0.12);
+  color: rgb(var(--sl-danger-rgb));
+  font-size: var(--sl-font-xs);
+}
+
+.terminal-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: 3px 6px 4px;
+  box-sizing: border-box;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+}

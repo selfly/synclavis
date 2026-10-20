@@ -10,7 +10,8 @@ export type PluginPermission =
   | 'repo:write'
   | 'ui:notify'
   | 'shell:repo'
-  | 'shell:any';
+  | 'shell:any'
+  | 'terminal';
 
 export type PluginNotificationType = 'info' | 'success' | 'warning' | 'error';
 
@@ -89,7 +90,9 @@ export interface Capabilities {
   };
   ai: {
     panel: boolean;
-    terminal: boolean;
+  };
+  terminal: {
+    panel: boolean;
   };
 }
 
@@ -130,6 +133,7 @@ export interface PluginContext {
   services: {
     repos: {
       activeId(): string | null;
+      onDidChangeActive(listener: (repoId: string | null) => void): Disposable;
     };
     ui: {
       notify(message: string, type?: PluginNotificationType): void;

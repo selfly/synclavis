@@ -18,6 +18,12 @@ synclavis:
   plugins:
     # 本地插件目录；可用 SYNCLAVIS_PLUGIN_DIR 单独覆盖（见《详细设计文档》§6.4.1）
     dir: "${SYNCLAVIS_PLUGIN_DIR:${synclavis.state.dir}/plugins}"
+  terminal:
+    # 宿主 PTY 开关；真正授权仍要求已启用插件声明 terminal 权限（§6.6.1）
+    enabled: "${SYNCLAVIS_TERMINAL_ENABLED:true}"
+    # 留空按平台自动选择：unix=$SHELL，Windows=COMSPEC/powershell
+    shell: "${SYNCLAVIS_TERMINAL_SHELL:}"
+    max-sessions: "${SYNCLAVIS_TERMINAL_MAX_SESSIONS:8}"
   ai:
     mock:
       # 仅开发/联调启用；生产环境不要打开（见《详细设计文档》§6.5.4）

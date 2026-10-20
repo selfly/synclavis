@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { NButton, useMessage } from 'naive-ui';
-import { Ban, Settings } from 'lucide-vue-next';
+import { Ban, PanelBottom, Settings, Terminal } from 'lucide-vue-next';
 import FetchButton from './FetchButton.vue';
 import PullButton from './PullButton.vue';
 import PushButton from './PushButton.vue';
 import StashButton from './StashButton.vue';
 import { requestOperationCancel, useOperationsStore } from '@/stores/operations';
+import { usePluginsStore } from '@/stores/plugins';
 import { useReposStore } from '@/stores/repos';
 import { useTabsStore } from '@/stores/tabs';
 import type { PushBody } from '@/api/operations';
@@ -18,9 +19,24 @@ const emit = defineEmits<{
 }>();
 
 const operations = useOperationsStore();
+const plugins = usePluginsStore();
 const repos = useReposStore();
 const tabs = useTabsStore();
 const message = useMessage();
+
+const bottomViews = computed(() => plugins.viewsFor('bottomDock'));
+const terminalView = computed(() => {
+  const terminalPlugins = plugins.items
+    .filter((item) => item.enabled && item.capabilities.includes('terminal.panel'))
+    .map((item) => item.id);
+  return bottomViews.value.find((view) => terminalPlugins.includes(view.pluginId)) ?? null;
+});
+const bottomEntry = computed(() => terminalView.value ?? bottomViews.value[0] ?? null);
+
+/** 有终端插件时优先打开终端；没有则打开其他底部视图或操作日志。 */
+function openBottomPanel(): void {
+  plugins.openBottomDock(bottomEntry.value?.key ?? 'log');
+}
 
 const status = computed(
   () => tabs.tabById(props.repoId)?.status ?? repos.detail(props.repoId).status,
@@ -98,6 +114,25 @@ function cancel(): void {
         size="tiny"
         quaternary
         :class="progress || busy ? '' : 'ml-auto'"
+        :title="
+          terminalView
+            ? '打开终端'
+            : bottomViews.length > 0
+              ? '打开底部面板'
+              : '打开操作日志面板'
+        "
+        data-testid="open-bottom-panel"
+        @click="openBottomPanel"
+      >
+        <template #icon>
+          <component :is="terminalView ? Terminal : PanelBottom" :size="13" />
+        </template>
+      </n-button>
+
+      <n-button
+        size="tiny"
+        quaternary
+        :class="progress || busy ? '' : 'ml-1'"
         title="仓库设置（远程仓库 / SSH 私钥 / HTTPS 凭据 / Pull 策略）"
         @click="emit('settings')"
       >
