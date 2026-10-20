@@ -1,0 +1,28 @@
+{
+  "id": "synclavis.ai-panel",
+  "name": "AI 面板",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "publisher": "synclavis",
+  "description": "在右侧 Dock 中发起 AI 会话、查看流式输出、工具调用、权限确认与工作区变更。",
+  "entry": "dist/index.js",
+  "style": "dist/style.css",
+  "permissions": ["repo:read"],
+  "capabilities": ["ai.panel"],
+  "ui": {
+    "isolation": "in-process"
+  },
+  "engines": {
+    "synclavis": ">=0.1.0"
+  },
+  "contributes": {
+    "views": [
+      {
+        "id": "ai.main",
+        "title": "AI",
+        "slot": "rightDock",
+        "order": 5
+      }
+    ]
+  }
+}

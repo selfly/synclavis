@@ -1,0 +1,14 @@
+{
+  "name": "@synclavis/plugin-ai-panel",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "synclavis AI 面板插件",
+  "scripts": {
+    "build": "vite build"
+  },
+  "peerDependencies": {
+    "naive-ui": "^2.38.2",
+    "vue": "^3.4.21"
+  }
+}

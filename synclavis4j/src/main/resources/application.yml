@@ -18,6 +18,16 @@ synclavis:
   plugins:
     # 本地插件目录；可用 SYNCLAVIS_PLUGIN_DIR 单独覆盖（见《详细设计文档》§6.4.1）
     dir: "${SYNCLAVIS_PLUGIN_DIR:${synclavis.state.dir}/plugins}"
+  ai:
+    mock:
+      # 仅开发/联调启用；生产环境不要打开（见《详细设计文档》§6.5.4）
+      enabled: "${SYNCLAVIS_AI_MOCK_ENABLED:false}"
+    opencode:
+      # 默认启用；服务未运行时只显示不可用，不影响启动
+      enabled: "${SYNCLAVIS_OPENCODE_ENABLED:true}"
+      # 留空时读取 $XDG_STATE_HOME/opencode/service.json 或 ~/.local/state/opencode/service.json
+      service-file: "${SYNCLAVIS_OPENCODE_SERVICE_FILE:}"
+      timeout-ms: "${SYNCLAVIS_OPENCODE_TIMEOUT_MS:10000}"
 
 logging:
   level:

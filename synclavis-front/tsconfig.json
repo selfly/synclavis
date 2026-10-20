@@ -21,10 +21,18 @@
 
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@synclavis/plugin-api": ["src/plugins/api.ts"]
     },
     "types": ["vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.vue", "tests/**/*.ts"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.d.ts",
+    "src/**/*.vue",
+    "tests/**/*.ts",
+    "plugins/*/src/**/*.ts",
+    "plugins/*/src/**/*.vue"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

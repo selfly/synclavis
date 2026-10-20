@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "build:plugin:ai-panel": "vite build --config plugins/ai-panel/vite.config.ts",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
     "test:unit": "vitest run",

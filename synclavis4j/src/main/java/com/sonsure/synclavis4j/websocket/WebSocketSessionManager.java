@@ -71,6 +71,21 @@ public class WebSocketSessionManager {
         return sessions == null ? 0 : sessions.size();
     }
 
+    /**
+     * 通用通道别名：AI 等非仓库事件流复用同一套会话管理，但 channel 不是 repoId。
+     */
+    public void registerChannel(String channel, WebSocketSession session) {
+        register(channel, session);
+    }
+
+    public void unregisterChannel(String channel, WebSocketSession session) {
+        unregister(channel, session);
+    }
+
+    public void broadcastChannel(String channel, String json) {
+        broadcast(channel, json);
+    }
+
     private void sendSafe(WebSocketSession session, TextMessage message) {
         if (!session.isOpen()) {
             return;
