@@ -9,7 +9,7 @@ Synclavis 是一个运行在浏览器中的 Git 仓库管理工具。界面参�
 中间查看提交历史，右侧查看 Diff，底部完成暂存与提交。Git 操作由后端使用纯 Java 的
 JGit 完成，**不依赖系统 `git` 命令**。
 
-![Synclavis 界面预览](./docs/preview.png)
+![Synclavis 界面预览](./assets/preview.png)
 
 ## ✨ 功能特性
 
